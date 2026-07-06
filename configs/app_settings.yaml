@@ -1,0 +1,37 @@
+# app_settings.yaml
+# ==============================================================================
+# MulTRecog labeling tool runtime defaults
+# ==============================================================================
+
+app_title: "MulTRecog Labeling Tool"  # 메인 윈도우 제목.
+main_ui_file: "main_window.ui"  # Qt Designer UI 파일.
+style_file: "configs/style_light.qss"  # 기본 스타일시트.
+default_hdf5_mapping_file: "configs/hdf5_mapping.yaml"  # HDF5 stream 매핑.
+default_view_config_file: "configs/view_config.yaml"  # 데이터 뷰 구성.
+default_label_dataset: "labels"  # HDF5 라벨 dataset 이름.
+export_dir_name: "label"  # 라벨 export 폴더 이름.
+default_app_theme: "Light"  # 기본 앱 테마 이름.
+default_data_view_background: "Dark"  # 데이터 뷰 배경.
+
+window:
+  default_width: 1920  # 시작 창 너비.
+  default_height: 1080  # 시작 창 높이.
+
+supported_extensions:
+  - ".mcap"
+  - ".h5"
+  - ".hdf5"
+
+preview:
+  data_view_count: 9  # 기본 데이터 뷰 개수.
+  image_topic_limit: 0  # MCAP 이미지 topic 로드 제한; 0은 전체.
+  numeric_topic_limit: 0  # MCAP numeric topic 로드 제한; 0은 전체.
+  max_image_frames: 0  # stream당 이미지 frame 제한; 0은 전체.
+  max_numeric_samples: 0  # stream당 numeric sample 제한; 0은 전체.
+
+timeline:
+  steps: 10000  # MCAP처럼 frame 수가 없는 입력의 기본 timeline 해상도.
+  default_zoom_seconds: 10.0  # timeseries follow window 기본 폭.
+
+labeling:
+  max_class_ids_per_segment: 2  # 한 구간에 저장할 최대 class ID 수.

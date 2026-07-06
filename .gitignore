@@ -1,0 +1,36 @@
+# .gitignore
+# ==============================================================================
+# Local/generated files
+# ==============================================================================
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ==============================================================================
+# Environment and editor files
+# ==============================================================================
+
+.env
+.venv/
+venv/
+.idea/
+.vscode/
+
+# ==============================================================================
+# Project data and generated labels
+# ==============================================================================
+
+reference/
+label/
+*.log
+
+# Large local datasets should be managed outside git.
+*.mcap
+*.db3
+*.h5
+*.hdf5
+
+# Keep intentionally exported environment.yml tracked.
+!environment.yml

@@ -1,0 +1,61 @@
+# hdf5_mapping.yaml
+# ==============================================================================
+# Default HDF5 topic mapping used by import and HDF5 format conversion.
+# ==============================================================================
+
+image_streams:  # Image topics mapped to HDF5 groups.
+  - topic: /left/cam/color/compressed
+    group: left__cam__color__compressed  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    image_bytes: image_bytes  # Encoded image byte dataset name.
+  - topic: /right/cam/color/compressed
+    group: right__cam__color__compressed  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    image_bytes: image_bytes  # Encoded image byte dataset name.
+  - topic: /exo/cam/color/compressed
+    group: exo__cam__color__compressed  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    image_bytes: image_bytes  # Encoded image byte dataset name.
+  - topic: /left/cam/depth/compressed
+    group: left__cam__depth__compressed  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    image_bytes: image_bytes  # Encoded image byte dataset name.
+  - topic: /right/cam/depth/compressed
+    group: right__cam__depth__compressed  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    image_bytes: image_bytes  # Encoded image byte dataset name.
+  - topic: /exo/cam/depth/compressed
+    group: exo__cam__depth__compressed  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    image_bytes: image_bytes  # Encoded image byte dataset name.
+
+timeseries_streams:  # Numeric topics mapped to HDF5 groups.
+  - topic: /left/ft/states
+    group: left__ft__states  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    values: values  # Numeric value dataset name.
+  - topic: /right/ft/states
+    group: right__ft__states  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    values: values  # Numeric value dataset name.
+  - topic: /left/gripper/states
+    group: left__gripper__states  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    values: values  # Numeric value dataset name.
+  - topic: /right/gripper/states
+    group: right__gripper__states  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    values: values  # Numeric value dataset name.
+  - topic: /recog/states
+    group: recog__states  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    values: values  # Numeric value dataset name.
+    labels: [task, unit_task, confidence]  # TaskRecognition numeric fields.
+  - topic: /left/robot/current/world_eef_pose
+    group: left__robot__current__world_eef_pose  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    values: values  # Numeric value dataset name.
+  - topic: /right/robot/current/world_eef_pose
+    group: right__robot__current__world_eef_pose  # HDF5 group name.
+    timestamps: timestamps  # Timestamp dataset name.
+    values: values  # Numeric value dataset name.

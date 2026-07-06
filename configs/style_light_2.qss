@@ -1,0 +1,199 @@
+/* style.qss */
+
+/* ========================================================================== */
+/* 전체적인 위젯 기본 스타일 (Monochrome Grayscale Theme)
+/* ========================================================================== */
+QWidget {
+    background-color: #BDBDBD; /* 전체 배경색 (채도 낮은 스톤 그레이) */
+    color: #3A3A3A;            /* 기본 텍스트 색상 (짙은 회색) */
+    font-family: "Arial", "Segoe UI", "Malgun Gothic", sans-serif; /* 폰트 */
+    font-size: 11pt;
+}
+
+/* ========================================================================== */
+/* QFrame (프레임)
+/* ========================================================================== */
+QFrame {
+    background-color: #EAE7E1; /* 프레임 배경색 (채도 낮은 샌드 베이지) */
+    border-radius: 2px;
+    border: 1px solid #8C8C8C; /* 더 진하고 명확한 테두리 */
+}
+
+
+/* ========================================================================== */
+/* QGroupBox (데이터 뷰, 클래스 뷰 등을 감싸는 박스)
+/* ========================================================================== */
+QGroupBox {
+    background-color: #F5F5F5; /* 그룹박스 배경색 (채도 낮은 샌드 베이지) */
+    border: 1px solid #8C8C8C; /* 더 진하고 명확한 테두리 */
+    border-radius: 2px;
+    margin-top: 1ex;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top center;
+    padding: 0 3px;
+    color: #3A3A3A; /* 제목 텍스트 색상 (짙은 차콜 그레이) */
+    font-weight: bold;
+}
+
+/* ========================================================================== */
+/* QPushButton (버튼)
+/* ========================================================================== */
+QPushButton {
+    background-color: #595959; /* 버튼 배경색 (중간 톤 회색) */
+    border: 1px solid #434343; /* 버튼 테두리를 더 진하게 변경 */
+    color: #FFFFFF;            /* 버튼 텍스트 색상 (흰색) */
+    border-radius: 2px;
+    padding: 5px 10px;
+    min-width: 80px;
+    font-size: 11pt;
+    font-weight: normal;
+}
+
+#ControlButtonsFrame QPushButton {
+    padding: 0px;
+    min-width: 0px;
+}
+
+QPushButton:hover {
+    background-color: #8C8C8C; /* 마우스 올렸을 때 색상 (밝은 회색) */
+    border: 1px solid #595959;
+}
+
+QPushButton:pressed {
+    background-color: #434343; /* 클릭했을 때 색상 (짙은 회색) */
+}
+
+/* ========================================================================== */
+/* QListWidget, QTextBrowser (클래스 뷰, 로그 뷰)
+/* ========================================================================== */
+QListWidget, QTextBrowser {
+    background-color: #EAE7E1;
+    border: 1px solid #8C8C8C;
+    border-radius: 2px;
+}
+
+QListWidget::item:hover {
+    background-color: #D9D9D9;
+}
+
+QListWidget::item:selected {
+    background-color: #8C8C8C; /* 선택 아이템 배경색 (밝은 회색) */
+    color: #FFFFFF;            /* 선택 아이템 텍스트 색상 (흰색) */
+}
+
+
+/* ========================================================================== */
+/* QSlider (타임라인 슬라이더)
+/* ========================================================================== */
+#OriginalTimelineSlider::groove:horizontal {
+    border: 1px solid #BFBFBF;
+    height: 8px;
+    background: #E0E0E0;
+    margin: 2px 0;
+    border-radius: 2px;
+}
+
+#OriginalTimelineSlider::handle:horizontal {
+    background: #595959; /* 핸들 색상 (중간 톤 회색) */
+    border: 1px solid #595959;
+    width: 18px;
+    margin: -5px 0;
+    border-radius: 5px;
+}
+
+/* ========================================================================== */
+/* 데이터 뷰 버튼 스타일 (수정됨)
+/* ========================================================================== */
+QToolButton#toolButton_view1,
+QToolButton#toolButton_view2,
+QToolButton#toolButton_view3,
+QToolButton#toolButton_view4 {
+    background-color: #EAE7E1;
+    color: #595959;
+    border: 1px solid #8C8C8C; /* 버튼 테두리를 더 진하게 변경 */
+    border-radius: 2px;
+    padding: 2px 6px;
+    min-height: 18px;
+    font-size: 11pt;
+    font-weight: bold;
+}
+
+QToolButton#toolButton_view1:hover,
+QToolButton#toolButton_view2:hover,
+QToolButton#toolButton_view3:hover,
+QToolButton#toolButton_view4:hover {
+    background-color: #595959;
+    border-color: #595959;
+    color: #FFFFFF;
+}
+
+QToolButton#toolButton_view1:pressed,
+QToolButton#toolButton_view2:pressed,
+QToolButton#toolButton_view3:pressed,
+QToolButton#toolButton_view4:pressed {
+    background-color: #434343;
+    color: #FFFFFF;
+}
+
+QToolButton#toolButton_view1:on,
+QToolButton#toolButton_view2:on,
+QToolButton#toolButton_view3:on,
+QToolButton#toolButton_view4:on {
+    background-color: #434343;
+    border: 1px solid #434343;
+    color: #FFFFFF;
+}
+
+QToolButton::menu-indicator {
+    image: none;
+}
+
+
+/* ========================================================================== */
+/* 데이터 뷰 위젯 스타일 (추가됨)
+/* ========================================================================== */
+QGraphicsView {
+    border: 1px solid #A9A9A9;
+    border-radius: 2px;
+    /* background-color: #2C2C2C; */
+    background-color: #1A1A1A;
+}
+
+
+/* ========================================================================== */
+/* QMenu (데이터 뷰 드롭다운 메뉴)
+/* ========================================================================== */
+QMenu {
+    background-color: #FFFFFF;
+    border: 1px solid #E0E0E0;
+    border-radius: 2px;
+}
+
+QMenu::item {
+    padding: 5px 25px 5px 20px;
+    border: 1px solid transparent;
+    color: #595959;
+}
+
+QMenu::item:selected {
+    background-color: #595959; /* 선택 아이템 배경색 (중간 톤 회색) */
+    color: #FFFFFF;            /* 선택 아이템 텍스트 색상 (흰색) */
+    border-radius: 2px;
+}
+
+/* ========================================================================== */
+/* 특정 라벨 스타일 (Timestamp, FilePath) - 테두리 제거
+/* ========================================================================== */
+QLabel#label_timestamp,
+QLabel#label_filePath {
+    color: #3A3A3A;      /* 텍스트 색상 (차분한 회색) */
+    font-size: 11pt;     /* 폰트 크기 */
+    font-weight: normal; /* 폰트 굵기 */
+
+    /* QFrame으로부터 상속받는 효과를 제거합니다. */
+    border: none;
+    background-color: transparent;
+}

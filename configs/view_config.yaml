@@ -1,0 +1,167 @@
+namespace_order:
+- left
+- exo
+- right
+- recog
+- object
+- metadata
+- general
+default_view_namespaces:
+- left
+- exo
+- right
+- recog
+- object
+default_streams:
+- object_positions/compressed_images
+- left/ft_states
+- left/gripper_states
+- left/robot_pose
+- /left/cam/color/compressed
+- /exo/cam/color/compressed
+- /right/cam/color/compressed
+- /left/robot/current/world_eef_pose
+- /left/ft/states
+- /left/gripper/states
+- /left/robot/current/joint_position
+- /left/robot/current/joint_velocity
+- /recog/states
+overlay:
+  enabled: true
+  precision: 6
+  colors:
+    positive: '#D32F2F'
+    negative: '#1565C0'
+    neutral: '#202428'
+  image_fields:
+  - time
+  - frame
+  - zoom
+  - pixel
+  timeseries_fields:
+  - sample_time
+  - sample
+  - values
+  text_fields:
+  - timestamp
+  - cursor
+  - value
+sources:
+  mcap:
+    namespaces:
+      left:
+        label: Left
+        prefixes:
+        - /left/
+        - left/
+        - left_
+      exo:
+        label: Exo
+        prefixes:
+        - /exo/
+        - exo/
+        - exo_
+      right:
+        label: Right
+        prefixes:
+        - /right/
+        - right/
+        - right_
+      recog:
+        label: Recog
+        prefixes:
+        - /recog/
+        - recog/
+        - recog_
+      object:
+        label: Object
+        prefixes:
+        - object_positions/
+        - objects/
+        - object_
+      metadata:
+        label: Metadata
+        prefixes:
+        - metadata/
+      general:
+        label: General
+        prefixes: []
+  hdf5:
+    namespaces:
+      left:
+        label: Left
+        prefixes:
+        - /left/
+        - left/
+        - left_
+      exo:
+        label: Exo
+        prefixes:
+        - /exo/
+        - exo/
+        - exo_
+      right:
+        label: Right
+        prefixes:
+        - /right/
+        - right/
+        - right_
+      recog:
+        label: Recog
+        prefixes:
+        - /recog/
+        - recog/
+        - recog_
+      object:
+        label: Object
+        prefixes:
+        - object_positions/
+        - objects/
+        - object_
+      metadata:
+        label: Metadata
+        prefixes:
+        - metadata/
+      general:
+        label: General
+        prefixes: []
+  default:
+    namespaces:
+      left:
+        label: Left
+        prefixes:
+        - /left/
+        - left/
+        - left_
+      exo:
+        label: Exo
+        prefixes:
+        - /exo/
+        - exo/
+        - exo_
+      right:
+        label: Right
+        prefixes:
+        - /right/
+        - right/
+        - right_
+      recog:
+        label: Recog
+        prefixes:
+        - /recog/
+        - recog/
+        - recog_
+      object:
+        label: Object
+        prefixes:
+        - object_positions/
+        - objects/
+        - object_
+      metadata:
+        label: Metadata
+        prefixes:
+        - metadata/
+      general:
+        label: General
+        prefixes: []
+current_data_views: []
