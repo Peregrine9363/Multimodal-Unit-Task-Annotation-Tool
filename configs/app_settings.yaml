@@ -31,7 +31,7 @@ preview:
 
 timeline:
   steps: 10000  # MCAP처럼 frame 수가 없는 입력의 기본 timeline 해상도.
-  default_zoom_seconds: 10.0  # timeseries follow window 기본 폭.
+  default_zoom_seconds: 1.0  # timeseries follow window 기본 폭.
 
 labeling:
   max_class_ids_per_segment: 2  # 한 구간에 저장할 최대 class ID 수.

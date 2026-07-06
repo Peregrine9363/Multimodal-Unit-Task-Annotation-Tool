@@ -15,6 +15,16 @@ QLabel {
     background-color: transparent;
 }
 
+QLabel#ViewSettingsFormLabel,
+QCheckBox#ViewSettingsFormLabel {
+    background-color: #E3E0DB;
+    color: #2A2926;
+    border: 1px solid #8A837B;
+    border-radius: 2px;
+    padding: 0 4px;
+    font-weight: normal;
+}
+
 QFrame {
     background-color: #E3E0DB;
     border: 1px solid #8A837B;
@@ -163,6 +173,12 @@ QPushButton#DataFitButton {
     padding: 2px 8px;
 }
 
+QWidget#ViewSettingsShiftButtons QPushButton,
+QWidget#ViewSettingsConfigButtons QPushButton,
+QPushButton#FitAllDataViewsButton {
+    padding: 0 8px;
+}
+
 QWidget#DataDockTitleBar {
     background-color: #DDDAD5;
     color: #2A2926;
@@ -235,6 +251,64 @@ QDoubleSpinBox:focus,
 QLineEdit:focus,
 QTextEdit:focus {
     border: 1px solid #478E50;
+}
+
+QSpinBox::up-button,
+QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    background: qlineargradient(
+        x1: 0, y1: 0,
+        x2: 0, y2: 1,
+        stop: 0 #F6F4EF,
+        stop: 1 #CDC9C2
+    );
+    border-left: 1px solid #8A837B;
+    border-top: 1px solid #FAF9F6;
+    border-bottom: 1px solid #8A837B;
+}
+
+QSpinBox::down-button,
+QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    background: qlineargradient(
+        x1: 0, y1: 0,
+        x2: 0, y2: 1,
+        stop: 0 #E6E2DB,
+        stop: 1 #BEB8AF
+    );
+    border-left: 1px solid #8A837B;
+    border-top: 1px solid #FAF9F6;
+    border-bottom: 1px solid #6D675F;
+}
+
+QSpinBox::up-button:hover,
+QSpinBox::down-button:hover,
+QDoubleSpinBox::up-button:hover,
+QDoubleSpinBox::down-button:hover {
+    background: qlineargradient(
+        x1: 0, y1: 0,
+        x2: 0, y2: 1,
+        stop: 0 #FAF9F6,
+        stop: 1 #D8D4CE
+    );
+}
+
+QSpinBox::up-arrow,
+QDoubleSpinBox::up-arrow {
+    image: url(configs/icons/spin_up.svg);
+    width: 8px;
+    height: 6px;
+}
+
+QSpinBox::down-arrow,
+QDoubleSpinBox::down-arrow {
+    image: url(configs/icons/spin_down.svg);
+    width: 8px;
+    height: 6px;
 }
 
 QCheckBox {

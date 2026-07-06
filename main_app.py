@@ -18,13 +18,18 @@ from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
     QInputDialog,
+    QLabel,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSizePolicy,
     QSplitter,
     QVBoxLayout,
+    QWidget,
 )
 
 from app_config import (
@@ -81,6 +86,10 @@ TIMELINE_BUTTON_WIDTHS = {
 }
 VIEW_SETTINGS_ROW_SPACING = 6       # Data View Settings 행 사이 간격.
 VIEW_SETTINGS_COLUMN_SPACING = 8    # Data View Settings 라벨/입력 간격.
+VIEW_SETTINGS_BUTTON_SPACING = 6    # Data View Settings 버튼 사이 간격.
+VIEW_SETTINGS_LABEL_MIN_WIDTH = 88  # Data View Settings 라벨 최소 너비.
+VIEW_SETTINGS_LABEL_MAX_WIDTH = 112  # Data View Settings 라벨 최대 너비.
+VIEW_SETTINGS_CONTROL_HEIGHT = 32   # Data View Settings 라벨/버튼 공통 높이.
 
 
 try:
@@ -167,6 +176,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.comboBox_viewBackground.setCurrentText(DEFAULT_DATA_VIEW_BACKGROUND)
         self.doubleSpinBox_zoomSeconds.setValue(self._default_zoom_seconds())
         self._remove_unused_view_setting_rows()
+        self._setup_view_settings_buttons()
         self._swap_log_and_class_view_locations()
         self._setup_workspace_splitter()
         self._setup_timeline_controls()
@@ -182,22 +192,137 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
 
     def _take_view_settings_row(self, label_widget) -> None:
         """폼 레이아웃에서 label_widget이 포함된 행을 제거합니다."""
-        row, _role = self.formLayout_viewSettings.getWidgetPosition(label_widget)
-        if row < 0:
-            return
-        row_items = self.formLayout_viewSettings.takeRow(row)
-        self._delete_form_item_widget(row_items.labelItem)
-        self._delete_form_item_widget(row_items.fieldItem)
+        for widget in self._take_view_settings_row_widgets(label_widget):
+            widget.deleteLater()
 
-    def _delete_form_item_widget(self, item) -> None:
-        """폼 행에서 분리된 위젯을 안전하게 제거합니다."""
+    def _take_view_settings_row_widgets(self, row_widget) -> List[QWidget]:
+        """폼 레이아웃에서 row_widget이 포함된 행을 분리하고 위젯 목록을 반환합니다."""
+        widgets = []
+        row, _role = self.formLayout_viewSettings.getWidgetPosition(row_widget)
+        if row < 0:
+            return widgets
+        row_items = self.formLayout_viewSettings.takeRow(row)
+        for item in (row_items.labelItem, row_items.fieldItem):
+            widget = self._detach_form_item_widget(item)
+            if widget is not None:
+                widgets.append(widget)
+        return widgets
+
+    def _detach_form_item_widget(self, item) -> Optional[QWidget]:
+        """폼 행에서 분리된 위젯의 부모를 해제하고 반환합니다."""
         if item is None:
-            return
+            return None
         widget = item.widget()
         if widget is None:
-            return
+            return None
         widget.setParent(None)
-        widget.deleteLater()
+        return widget
+
+    def _setup_view_settings_buttons(self) -> None:
+        """Data View Settings 하위 버튼 배치를 구성합니다."""
+        self.pushButton_saveViewConfig.setText("Save Config")
+        self._move_shift_buttons_to_view_settings()
+        self._add_fit_all_button_to_view_settings()
+        self._move_config_buttons_to_equal_row()
+        self._normalize_view_settings_controls()
+
+    def _move_shift_buttons_to_view_settings(self) -> None:
+        """Left/Right 전체 shift 버튼을 Data View Settings로 이동합니다."""
+        for button in (self.pushButton_left, self.pushButton_right):
+            self.gridLayout_fileButtons.removeWidget(button)
+        self.gridLayout_fileButtons.removeWidget(self.pushButton_importLabel)
+        self.gridLayout_fileButtons.addWidget(self.pushButton_importLabel, 2, 0, 1, 2)
+        row_widget = self._make_equal_button_row(
+            [self.pushButton_left, self.pushButton_right],
+            "ViewSettingsShiftButtons",
+        )
+        self.formLayout_viewSettings.addRow(self._make_view_settings_label("Shift"), row_widget)
+
+    def _add_fit_all_button_to_view_settings(self) -> None:
+        """모든 Data View의 Fit과 동일한 동작을 수행하는 버튼을 추가합니다."""
+        self.pushButton_fitAllViews = QPushButton("Fit All", self.groupBox_viewSettings)
+        self.pushButton_fitAllViews.setObjectName("FitAllDataViewsButton")
+        self.pushButton_fitAllViews.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.formLayout_viewSettings.addRow(
+            self._make_view_settings_label("Fit"),
+            self.pushButton_fitAllViews,
+        )
+
+    def _move_config_buttons_to_equal_row(self) -> None:
+        """Reload/Save Config 버튼을 동일한 비율의 한 줄 버튼으로 재배치합니다."""
+        self._take_view_settings_row_widgets(self.pushButton_reloadViewConfig)
+        row_widget = self._make_equal_button_row(
+            [self.pushButton_reloadViewConfig, self.pushButton_saveViewConfig],
+            "ViewSettingsConfigButtons",
+        )
+        self.formLayout_viewSettings.addRow(row_widget)
+
+    def _make_equal_button_row(self, buttons: List[QPushButton], object_name: str) -> QWidget:
+        """동일한 stretch 비율을 가지는 버튼 행을 생성합니다."""
+        row_widget = QWidget(self.groupBox_viewSettings)
+        row_widget.setObjectName(object_name)
+        row_widget.setFixedHeight(VIEW_SETTINGS_CONTROL_HEIGHT)
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(VIEW_SETTINGS_BUTTON_SPACING)
+        for button in buttons:
+            button.setParent(row_widget)
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            button.setFixedHeight(VIEW_SETTINGS_CONTROL_HEIGHT)
+            row_layout.addWidget(button, 1)
+        return row_widget
+
+    def _make_view_settings_label(self, text: str) -> QLabel:
+        """설정 폼의 라벨을 동일한 스타일/정렬 기준으로 생성합니다."""
+        label = QLabel(text, self.groupBox_viewSettings)
+        label.setObjectName("ViewSettingsFormLabel")
+        label.setAlignment(Qt.AlignCenter)
+        label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        label.setFixedHeight(VIEW_SETTINGS_CONTROL_HEIGHT)
+        return label
+
+    def _normalize_view_settings_controls(self) -> None:
+        """Data View Settings의 라벨/버튼 크기를 동일 기준으로 맞춥니다."""
+        self._normalize_view_settings_label_column()
+        self._normalize_view_settings_button_heights()
+
+    def _normalize_view_settings_label_column(self) -> None:
+        """Data View Settings의 왼쪽 라벨 열을 동일 폭/높이와 중앙 정렬로 맞춥니다."""
+        label_widgets = self._view_settings_label_widgets()
+        if not label_widgets:
+            return
+        width = max(widget.sizeHint().width() for widget in label_widgets)
+        width = max(VIEW_SETTINGS_LABEL_MIN_WIDTH, min(width, VIEW_SETTINGS_LABEL_MAX_WIDTH))
+        self.formLayout_viewSettings.setLabelAlignment(Qt.AlignCenter)
+        for widget in label_widgets:
+            widget.setObjectName("ViewSettingsFormLabel")
+            widget.setMinimumWidth(width)
+            widget.setMaximumWidth(width)
+            widget.setFixedHeight(VIEW_SETTINGS_CONTROL_HEIGHT)
+            widget.setSizePolicy(QSizePolicy.Fixed, widget.sizePolicy().verticalPolicy())
+            if hasattr(widget, "setAlignment"):
+                widget.setAlignment(Qt.AlignCenter)
+
+    def _normalize_view_settings_button_heights(self) -> None:
+        """Data View Settings 하위 버튼 높이를 라벨 박스와 동일하게 맞춥니다."""
+        buttons = [
+            self.pushButton_left,
+            self.pushButton_right,
+            self.pushButton_fitAllViews,
+            self.pushButton_reloadViewConfig,
+            self.pushButton_saveViewConfig,
+        ]
+        for button in buttons:
+            button.setFixedHeight(VIEW_SETTINGS_CONTROL_HEIGHT)
+
+    def _view_settings_label_widgets(self) -> List[QWidget]:
+        """폼의 LabelRole에 배치된 위젯을 반환합니다."""
+        widgets = []
+        for row in range(self.formLayout_viewSettings.rowCount()):
+            item = self.formLayout_viewSettings.itemAt(row, QFormLayout.LabelRole)
+            if item is not None and item.widget() is not None:
+                widgets.append(item.widget())
+        return widgets
 
     def _swap_log_and_class_view_locations(self) -> None:
         """오른쪽 패널에서 Log View와 Class View의 위치를 교체합니다."""
@@ -435,6 +560,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.pushButton_nextBoundary.clicked.connect(lambda: self._move_to_boundary(1))
         self.pushButton_reloadViewConfig.clicked.connect(self.reload_view_config)
         self.pushButton_saveViewConfig.clicked.connect(self.save_current_view_config)
+        self.pushButton_fitAllViews.clicked.connect(self.fit_all_data_views)
         self.timeline_slider.valueChanged.connect(self.slider_changed)
         self.listWidget_classView.itemDoubleClicked.connect(self.edit_segment_from_list)
         self.spinBox_viewCount.valueChanged.connect(self._build_data_views)
@@ -636,6 +762,12 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             yaml.safe_dump(data, file, sort_keys=False, allow_unicode=True)
         self.namespace_config = data
         self._log(f"Current view config saved: {save_path}")
+
+    def fit_all_data_views(self) -> None:
+        """모든 데이터 뷰에 개별 Fit 버튼과 동일한 동작을 적용합니다."""
+        for dock in self.data_docks:
+            dock.view.set_full_range()
+        self._log("Applied Fit to all data views.")
 
     def _current_view_config_rows(self) -> List[Dict[str, object]]:
         rows = []
@@ -1005,6 +1137,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.pushButton_nextBoundary.setEnabled(has_timeline)
         self.pushButton_left.setEnabled(has_session)
         self.pushButton_right.setEnabled(has_session)
+        self.pushButton_fitAllViews.setEnabled(has_session)
         if not has_timeline:
             self.label_filePath.setText("File: No file loaded.")
             self.label_timestamp.setText("Timestamp: 0 / 0 | Class: None")

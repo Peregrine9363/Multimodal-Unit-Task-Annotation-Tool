@@ -81,7 +81,7 @@ PREVIEW_MAX_NUMERIC_SAMPLES = int(PREVIEW_SETTINGS.get("max_numeric_samples", 0)
 
 TIMELINE_SETTINGS = APP_SETTINGS.get("timeline", {}) or {}
 TIMELINE_STEPS = int(TIMELINE_SETTINGS.get("steps", 10000))
-DEFAULT_ZOOM_SECONDS = float(TIMELINE_SETTINGS.get("default_zoom_seconds", 10.0))
+DEFAULT_ZOOM_SECONDS = float(TIMELINE_SETTINGS.get("default_zoom_seconds", 1.0))
 
 # reference 로더가 사용하는 호환 alias입니다.
 IMAGE_TOPIC_LIMIT = PREVIEW_IMAGE_TOPIC_LIMIT
