@@ -1,4 +1,6 @@
 # app_config.py
+# Copyright 2026 Peregrine9363
+# SPDX-License-Identifier: Apache-2.0
 # ==============================================================================
 # YAML-backed application configuration
 # ==============================================================================

@@ -1,4 +1,6 @@
 # main_app.py
+# Copyright 2026 Peregrine9363
+# SPDX-License-Identifier: Apache-2.0
 # ==============================================================================
 # MulTRecog labeling tool main controller
 # ==============================================================================
@@ -177,6 +179,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.doubleSpinBox_zoomSeconds.setValue(self._default_zoom_seconds())
         self._remove_unused_view_setting_rows()
         self._setup_view_settings_buttons()
+        self._setup_timeline_info_labels()
         self._swap_log_and_class_view_locations()
         self._setup_workspace_splitter()
         self._setup_timeline_controls()
@@ -189,6 +192,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.formLayout_viewSettings.setHorizontalSpacing(VIEW_SETTINGS_COLUMN_SPACING)
         for label_widget in (self.label_viewBackground, self.label_scaleMode):
             self._take_view_settings_row(label_widget)
+        self._hide_preserved_view_setting_row(self.checkBox_mouseZoom)
 
     def _take_view_settings_row(self, label_widget) -> None:
         """폼 레이아웃에서 label_widget이 포함된 행을 제거합니다."""
@@ -217,6 +221,12 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             return None
         widget.setParent(None)
         return widget
+
+    def _hide_preserved_view_setting_row(self, row_widget: QWidget) -> None:
+        """백엔드 설정값은 보존하면서 UI 행만 제거합니다."""
+        for widget in self._take_view_settings_row_widgets(row_widget):
+            widget.setParent(self.groupBox_viewSettings)
+            widget.hide()
 
     def _setup_view_settings_buttons(self) -> None:
         """Data View Settings 하위 버튼 배치를 구성합니다."""
@@ -302,6 +312,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             widget.setSizePolicy(QSizePolicy.Fixed, widget.sizePolicy().verticalPolicy())
             if hasattr(widget, "setAlignment"):
                 widget.setAlignment(Qt.AlignCenter)
+            self._refresh_widget_style(widget)
 
     def _normalize_view_settings_button_heights(self) -> None:
         """Data View Settings 하위 버튼 높이를 라벨 박스와 동일하게 맞춥니다."""
@@ -346,6 +357,20 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             widget = item.widget()
             self.verticalLayout_sidePanel.setStretch(index, stretch_by_widget.get(widget, 0))
 
+    def _setup_timeline_info_labels(self) -> None:
+        """타임라인 양쪽 정보 라벨의 여백과 크기 정책을 정리합니다."""
+        for label in (self.label_timestamp, self.label_filePath):
+            label.setMargin(0)
+            label.setMinimumHeight(32)
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+            self._refresh_widget_style(label)
+
+    def _refresh_widget_style(self, widget: QWidget) -> None:
+        """objectName 변경 이후 QSS가 즉시 다시 적용되도록 스타일을 갱신합니다."""
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        widget.update()
+
     def _setup_workspace_splitter(self) -> None:
         """데이터/메뉴 영역과 타임라인 영역 사이에 세로 크기 조절 바를 추가합니다."""
         if self.workspace_splitter is not None:
@@ -373,7 +398,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
                 button.setFixedHeight(TIMELINE_BUTTON_HEIGHT)
                 button.setFixedWidth(width)
                 button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self._set_timeline_button_layout_stretch()
+        self._rebuild_timeline_control_layout()
 
     def _timeline_control_buttons(self) -> List:
         buttons = []
@@ -388,11 +413,73 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             "label": [self.pushButton_toggleLabeling],
         }
 
-    def _set_timeline_button_layout_stretch(self) -> None:
-        for index in range(self.horizontalLayout_controls.count()):
-            item = self.horizontalLayout_controls.itemAt(index)
+    def _rebuild_timeline_control_layout(self) -> None:
+        """좌우 텍스트 길이 변화와 무관하게 중앙 버튼 위치를 고정합니다."""
+        if getattr(self, "_timeline_control_layout_rebuilt", False):
+            return
+        self._clear_timeline_control_layout()
+
+        left_panel = self._make_timeline_side_panel(
+            self.label_timestamp,
+            "TimelineLeftInfoPanel",
+            Qt.AlignLeft | Qt.AlignVCenter,
+        )
+        center_panel = self._make_timeline_center_panel()
+        right_panel = self._make_timeline_side_panel(
+            self.label_filePath,
+            "TimelineRightInfoPanel",
+            Qt.AlignRight | Qt.AlignVCenter,
+        )
+
+        self.horizontalLayout_controls.setSpacing(8)
+        self.horizontalLayout_controls.addWidget(left_panel, 1)
+        self.horizontalLayout_controls.addWidget(center_panel, 0, Qt.AlignCenter)
+        self.horizontalLayout_controls.addWidget(right_panel, 1)
+        self._timeline_control_layout_rebuilt = True
+
+    def _clear_timeline_control_layout(self) -> None:
+        """Qt Designer의 기존 타임라인 컨트롤 배치를 비웁니다."""
+        while self.horizontalLayout_controls.count():
+            item = self.horizontalLayout_controls.takeAt(0)
             widget = item.widget()
-            self.horizontalLayout_controls.setStretch(index, 0)
+            if widget is not None:
+                widget.setParent(None)
+
+    def _make_timeline_side_panel(self, label: QLabel, object_name: str, alignment: Qt.Alignment) -> QWidget:
+        """중앙 버튼에 영향을 주지 않는 좌/우 정보 패널을 만듭니다."""
+        panel = QWidget(self.timelinePanel)
+        panel.setObjectName(object_name)
+        panel.setFixedHeight(TIMELINE_BUTTON_HEIGHT)
+        panel_layout = QHBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(0)
+        label.setAlignment(alignment)
+        label.setMinimumWidth(0)
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        panel_layout.addWidget(label)
+        return panel
+
+    def _make_timeline_center_panel(self) -> QWidget:
+        """Start/화살표 버튼 묶음을 고정 폭 중앙 패널로 구성합니다."""
+        panel = QWidget(self.timelinePanel)
+        panel.setObjectName("TimelineCenterControlPanel")
+        panel.setFixedHeight(TIMELINE_BUTTON_HEIGHT)
+        panel_layout = QHBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(8)
+        for button in (
+            self.pushButton_prevBoundary,
+            self.pushButton_prevFrame,
+            self.pushButton_toggleLabeling,
+            self.pushButton_nextFrame,
+            self.pushButton_nextBoundary,
+        ):
+            panel_layout.addWidget(button)
+        width = sum(button.width() for button in self._timeline_control_buttons())
+        width += panel_layout.spacing() * (len(self._timeline_control_buttons()) - 1)
+        panel.setFixedWidth(width)
+        panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        return panel
 
     def _setup_splitter_geometry(self) -> None:
         """초기 화면에서 오른쪽 설정 패널이 과도하게 커지지 않도록 제한합니다."""

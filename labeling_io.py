@@ -1,4 +1,6 @@
 # labeling_io.py
+# Copyright 2026 Peregrine9363
+# SPDX-License-Identifier: Apache-2.0
 # ==============================================================================
 # Label segment import/export helpers
 # ==============================================================================

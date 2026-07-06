@@ -1,4 +1,6 @@
 # check_h5_structure.py
+# Copyright 2026 Peregrine9363
+# SPDX-License-Identifier: Apache-2.0
 import h5py
 import os
 

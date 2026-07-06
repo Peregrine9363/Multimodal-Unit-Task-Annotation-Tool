@@ -147,4 +147,6 @@ When changing the UI, keep `main_window.ui`, runtime setup in `main_app.py`, and
 
 ## License
 
-No license file is currently included. Add a license before redistributing or accepting external contributions.
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+
+Third-party dependencies are distributed under their own licenses. In particular, PyQt5 is licensed separately by Riverbank Computing; review its license terms when redistributing this project or derived applications.

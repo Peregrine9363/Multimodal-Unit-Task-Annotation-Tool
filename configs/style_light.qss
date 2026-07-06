@@ -16,13 +16,19 @@ QLabel {
 }
 
 QLabel#ViewSettingsFormLabel,
-QCheckBox#ViewSettingsFormLabel {
-    background-color: #E3E0DB;
+QCheckBox#ViewSettingsFormLabel,
+QLabel#label_timestamp,
+QLabel#label_filePath {
+    background-color: #D0CECA;
     color: #2A2926;
     border: 1px solid #8A837B;
     border-radius: 2px;
-    padding: 0 4px;
     font-weight: normal;
+}
+
+QLabel#ViewSettingsFormLabel,
+QCheckBox#ViewSettingsFormLabel {
+    padding: 0 4px;
 }
 
 QFrame {
@@ -64,9 +70,17 @@ QSplitter::handle:vertical {
     height: 10px;
 }
 
-QWidget#ToolPanel,
-QWidget#TimelinePanel {
+QWidget#ToolPanel {
     background-color: #DDDAD5;
+    border: 1px solid #8A837B;
+    border-radius: 2px;
+}
+
+QWidget#TimelinePanel,
+QWidget#timelinePanel,
+QFrame#TimelinePanel,
+QFrame#timelinePanel {
+    background-color: #E3E0DB;
     border: 1px solid #8A837B;
     border-radius: 2px;
 }
@@ -75,6 +89,13 @@ QLabel#WorkspacePathLabel,
 QLabel#TimelineFileLabel {
     color: #5A554F;
     font-size: 11px;
+}
+
+QWidget#TimelineLeftInfoPanel,
+QWidget#TimelineCenterControlPanel,
+QWidget#TimelineRightInfoPanel {
+    background-color: transparent;
+    border: none;
 }
 
 QGroupBox {
@@ -171,6 +192,16 @@ QPushButton:disabled {
 QPushButton#DataFitButton {
     min-height: 18px;
     padding: 2px 8px;
+}
+
+QPushButton#pushButton_prevBoundary,
+QPushButton#pushButton_prevFrame,
+QPushButton#pushButton_toggleLabeling,
+QPushButton#pushButton_nextFrame,
+QPushButton#pushButton_nextBoundary {
+    min-height: 30px;
+    max-height: 30px;
+    padding: 0 10px;
 }
 
 QWidget#ViewSettingsShiftButtons QPushButton,

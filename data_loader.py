@@ -1,4 +1,6 @@
 # data_loader.py
+# Copyright 2026 Peregrine9363
+# SPDX-License-Identifier: Apache-2.0
 # ==============================================================================
 # Dataset import and rosbag preview loading
 # ==============================================================================

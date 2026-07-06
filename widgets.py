@@ -1,4 +1,6 @@
 # widgets.py
+# Copyright 2026 Peregrine9363
+# SPDX-License-Identifier: Apache-2.0
 # ==============================================================================
 # Reusable PyQt widgets for the dataset processor
 # ==============================================================================

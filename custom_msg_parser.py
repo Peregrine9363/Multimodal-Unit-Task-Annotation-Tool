@@ -1,4 +1,6 @@
 # custom_msg_parser.py
+# Copyright 2026 Peregrine9363
+# SPDX-License-Identifier: Apache-2.0
 # ==============================================================================
 # CDR fallback parser for local msg definitions
 # ==============================================================================
