@@ -1686,8 +1686,37 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         if self.session is None:
             return
         next_index = self.session.file_index + direction
-        if 0 <= next_index < len(self.session.file_list):
-            self._load_file(self.session.file_list[next_index], self.session.file_list)
+        if not 0 <= next_index < len(self.session.file_list):
+            return
+        target_path = self.session.file_list[next_index]
+        if not self._confirm_file_navigation(direction, target_path):
+            self._log(f"File navigation canceled: {target_path.name}")
+            return
+        self._load_file(target_path, self.session.file_list)
+
+    def _confirm_file_navigation(
+        self,
+        direction: int,
+        target_path: Path,
+    ) -> bool:
+        """Confirm navigation because loading another source resets labels."""
+        direction_text = "previous" if direction < 0 else "next"
+        current_name = self.session.file_path.name if self.session else "current file"
+        message = (
+            f"Move to the {direction_text} item?\n\n"
+            f"Current: {current_name}\n"
+            f"Target: {target_path.name}\n\n"
+            "Changing files resets the current timeline labels. "
+            "Export them before moving if they have not been saved."
+        )
+        result = QMessageBox.question(
+            self,
+            "Confirm File Navigation",
+            message,
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Cancel,
+        )
+        return result == QMessageBox.Yes
 
     def _move_to_boundary(self, direction: int) -> None:
         if not self.labeling_logic.segments or self.total_frames <= 0:

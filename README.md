@@ -99,6 +99,8 @@ Exported labels are written to a `label/` directory next to the source file or i
 
 The selected file's parent directory becomes the workspace, and `Previous`/`Next` navigates all directly contained supported files regardless of format. Selecting one image imports every image in that directory as one sequence. Selecting a parent directory that contains image-sequence folders makes those folders the `Previous`/`Next` navigation entries.
 
+Before `Previous` or `Next` changes the active source, a confirmation dialog warns that current timeline labels may need to be exported. `Cancel` is the default action.
+
 Import, label import, and export operations display a modal progress window with the active stage, percentage, elapsed time, and estimated remaining time. Split exports update progress while writing video frames or copying labeled images.
 
 The main menu provides the same common commands from the upper-left corner:
