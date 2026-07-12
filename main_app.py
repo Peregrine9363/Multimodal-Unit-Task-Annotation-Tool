@@ -15,8 +15,9 @@ from typing import Dict, List, Optional
 import yaml
 from PyQt5 import uic
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtGui import QIcon, QKeySequence, QPixmap
 from PyQt5.QtWidgets import (
+    QAction,
     QApplication,
     QDialog,
     QFileDialog,
@@ -27,6 +28,7 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QMenu,
     QPushButton,
     QSizePolicy,
     QSplitter,
@@ -35,6 +37,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app_config import (
+    APP_SETTINGS_FILE,
     APP_TITLE,
     CLASS_COLORS,
     DEFAULT_DATA_VIEW_BACKGROUND,
@@ -62,6 +65,7 @@ from data_models import DatasetSession
 from labeling_io import LabelImportResult, LabelStorage
 from multrecog_core import LabelingLogic
 from multrecog_ui import EditSegmentDialog, SegmentedSlider
+from settings_dialogs import DataViewSettingsDialog, YamlConfigEditorDialog
 from widgets import DataDockWidget
 
 
@@ -155,6 +159,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.timeline_end_sec = 0.0
         self.namespace_config = load_yaml(DEFAULT_VIEW_CONFIG_FILE)
         self.view_config_path = DEFAULT_VIEW_CONFIG_FILE
+        self.hdf5_mapping_path = DEFAULT_HDF5_MAPPING_FILE
 
         self.label_storage = LabelStorage(DEFAULT_LABEL_DATASET, self._log)
         self.labeling_logic = LabelingLogic(CLASS_COLORS)
@@ -177,8 +182,14 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
 
     def _setup_ui_components(self) -> None:
         self.timeline_slider = self._replace_timeline_slider()
-        self.spinBox_viewCount.setValue(PREVIEW_DATA_VIEW_COUNT)
+        view_settings = self._view_settings_config()
+        self.spinBox_viewCount.setValue(
+            int(view_settings.get("view_count", PREVIEW_DATA_VIEW_COUNT))
+        )
         self.comboBox_viewBackground.setCurrentText(DEFAULT_DATA_VIEW_BACKGROUND)
+        self.comboBox_plotMode.setCurrentText(
+            str(view_settings.get("plot_mode", "global_cursor"))
+        )
         self.doubleSpinBox_zoomSeconds.setValue(self._default_zoom_seconds())
         self._remove_unused_view_setting_rows()
         self._setup_view_settings_buttons()
@@ -187,7 +198,111 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self._setup_workspace_splitter()
         self._setup_timeline_controls()
         self._setup_splitter_geometry()
-        self._build_data_views(PREVIEW_DATA_VIEW_COUNT)
+        self._setup_menu_bar()
+        self._setup_import_menu()
+        self._build_data_views(self.spinBox_viewCount.value())
+
+    def _setup_menu_bar(self) -> None:
+        """Build reference-style File and Settings dropdown menus."""
+        self.menubar.clear()
+        file_menu = self.menubar.addMenu("File")
+        settings_menu = self.menubar.addMenu("Settings")
+
+        self._add_menu_action(
+            file_menu,
+            "Import File...",
+            self.import_data,
+            QKeySequence.Open,
+        )
+        self._add_menu_action(
+            file_menu,
+            "Import Image Folder...",
+            self.import_image_folder,
+            "Ctrl+Shift+O",
+        )
+        self._add_menu_action(file_menu, "Import Label...", self.import_label_data)
+        self.action_export_labels = self._add_menu_action(
+            file_menu,
+            "Export Labels",
+            self.export_data,
+            QKeySequence.Save,
+        )
+        file_menu.addSeparator()
+        self.action_previous_file = self._add_menu_action(
+            file_menu,
+            "Previous File",
+            self.go_to_previous_file,
+        )
+        self.action_next_file = self._add_menu_action(
+            file_menu,
+            "Next File",
+            self.go_to_next_file,
+        )
+        file_menu.addSeparator()
+        self._add_menu_action(file_menu, "Exit", self.close, QKeySequence.Quit)
+
+        self._add_menu_action(
+            settings_menu,
+            "Data View Settings...",
+            self.open_data_view_settings,
+        )
+        view_config_menu = settings_menu.addMenu("View Config")
+        self._add_menu_action(
+            view_config_menu,
+            "Browse...",
+            self.browse_view_config,
+        )
+        self._add_menu_action(
+            view_config_menu,
+            "Edit YAML...",
+            self.edit_view_config_yaml,
+        )
+        self._add_menu_action(
+            view_config_menu,
+            "Reload",
+            self.reload_view_config,
+        )
+        self._add_menu_action(
+            view_config_menu,
+            "Save Current",
+            self.save_current_view_config,
+        )
+        settings_menu.addSeparator()
+        self._add_menu_action(
+            settings_menu,
+            "Edit App Settings YAML...",
+            self.edit_app_settings_yaml,
+        )
+        self._add_menu_action(
+            settings_menu,
+            "Edit HDF5 Mapping YAML...",
+            self.edit_hdf5_mapping_yaml,
+        )
+
+    def _add_menu_action(
+        self,
+        menu: QMenu,
+        text: str,
+        callback,
+        shortcut=None,
+    ) -> QAction:
+        """Create and connect one menu action."""
+        action = QAction(text, self)
+        action.triggered.connect(callback)
+        if shortcut is not None:
+            action.setShortcut(shortcut)
+        menu.addAction(action)
+        return action
+
+    def _setup_import_menu(self) -> None:
+        """Provide separate file and image-folder import commands."""
+        self.import_menu = QMenu(self.pushButton_import)
+        self.import_menu.addAction("Import File...", self.import_data)
+        self.import_menu.addAction(
+            "Import Image Folder...",
+            self.import_image_folder,
+        )
+        self.pushButton_import.setMenu(self.import_menu)
 
     def _remove_unused_view_setting_rows(self) -> None:
         """UI에서 제거된 데이터 뷰 설정 항목의 폼 행까지 정리합니다."""
@@ -636,7 +751,6 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             dialog.deleteLater()
 
     def _connect_signals(self) -> None:
-        self.pushButton_import.clicked.connect(self.import_data)
         self.pushButton_importLabel.clicked.connect(self.import_label_data)
         self.pushButton_export.clicked.connect(self.export_data)
         self.pushButton_previous.clicked.connect(self.go_to_previous_file)
@@ -669,44 +783,86 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             self,
             "Select Dataset File",
             "",
-            f"Supported Files ({patterns});;HDF5 Files (*.h5 *.hdf5);;MCAP Files (*.mcap)",
+            f"Supported Files ({patterns});;"
+            "Video Files (*.mp4);;"
+            "Image Files (*.jpg *.jpeg *.png *.bmp *.tif *.tiff *.webp);;"
+            "HDF5 Files (*.h5 *.hdf5);;"
+            "MCAP Files (*.mcap)",
         )
         if file_path:
             self._load_file(Path(file_path))
+
+    def import_image_folder(self) -> None:
+        folder_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Image Sequence Folder",
+            "",
+            QFileDialog.ShowDirsOnly,
+        )
+        if not folder_path:
+            return
+        self._load_image_folder(Path(folder_path))
+
+    def _load_image_folder(self, folder_path: Path) -> None:
+        try:
+            self._log(f"Loading image folder '{folder_path.name}'...")
+            session = self._make_dataset_loader().load_image_folder(folder_path)
+            self._accept_loaded_session(session)
+        except Exception as exc:
+            self._handle_load_error(exc)
 
     def _load_file(self, file_path: Path, file_list: Optional[List[Path]] = None) -> None:
         try:
             self._log(f"Loading '{file_path.name}'...")
             file_list = file_list or discover_supported_files(file_path)
-            loader = DatasetLoader(
-                progress_callback=self._on_load_progress,
-                max_image_frames=PREVIEW_MAX_IMAGE_FRAMES,
-                max_numeric_samples=PREVIEW_MAX_NUMERIC_SAMPLES,
-                hdf5_mapping_path=DEFAULT_HDF5_MAPPING_FILE,
-                full_data=True,
+            loader = self._make_dataset_loader()
+            session = (
+                loader.load_exact(file_path, file_list)
+                if file_list
+                else loader.load(file_path)
             )
-            self.session = loader.load_exact(file_path, file_list) if file_list else loader.load(file_path)
-            self.label_file_path = None
-            self.total_frames = self._infer_total_frames()
-            self._sync_timeline_bounds_from_session()
-            self.current_index = 0
-            self.labeling_logic.reset()
-            self._load_existing_labels()
-            self._configure_views_for_session()
-            self._reset_timeline()
-            self._update_class_list()
-            self._update_slider_segments()
-            self._update_ui_state()
-            self._log(f"Loaded {len(self.session.streams)} streams. Frames: {self.total_frames}")
+            self._accept_loaded_session(session)
         except Exception as exc:
-            QMessageBox.critical(self, "Import Error", f"Failed to load file:\n{exc}")
-            self._log(f"Failed to load file: {exc}", "ERROR")
-            self.session = None
-            self.label_file_path = None
-            self.total_frames = 0
-            self.timeline_start_sec = 0.0
-            self.timeline_end_sec = 0.0
-            self._update_ui_state()
+            self._handle_load_error(exc)
+
+    def _make_dataset_loader(self) -> DatasetLoader:
+        """Create a loader with the current full-data preview settings."""
+        return DatasetLoader(
+            progress_callback=self._on_load_progress,
+            max_image_frames=PREVIEW_MAX_IMAGE_FRAMES,
+            max_numeric_samples=PREVIEW_MAX_NUMERIC_SAMPLES,
+            hdf5_mapping_path=self.hdf5_mapping_path,
+            full_data=True,
+        )
+
+    def _accept_loaded_session(self, session: DatasetSession) -> None:
+        """Apply common timeline and view state after any data import."""
+        self.session = session
+        self.label_file_path = None
+        self.total_frames = self._infer_total_frames()
+        self._sync_timeline_bounds_from_session()
+        self.current_index = 0
+        self.labeling_logic.reset()
+        self._load_existing_labels()
+        self._configure_views_for_session()
+        self._reset_timeline()
+        self._update_class_list()
+        self._update_slider_segments()
+        self._update_ui_state()
+        self._log(
+            f"Loaded {len(session.streams)} streams. Frames: {self.total_frames}"
+        )
+
+    def _handle_load_error(self, exc: Exception) -> None:
+        """Reset imported data state after a failed file or folder import."""
+        QMessageBox.critical(self, "Import Error", f"Failed to load data:\n{exc}")
+        self._log(f"Failed to load data: {exc}", "ERROR")
+        self.session = None
+        self.label_file_path = None
+        self.total_frames = 0
+        self.timeline_start_sec = 0.0
+        self.timeline_end_sec = 0.0
+        self._update_ui_state()
 
     def _load_existing_labels(self) -> None:
         if self.session is None or self.session.source_kind != "hdf5":
@@ -719,7 +875,9 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             self,
             "Select Label File",
             "",
-            "HDF5 Label Files (*.h5 *.hdf5);;All Files (*)",
+            "CSV Label Files (*.csv);;"
+            "Legacy HDF5 Label Files (*.h5 *.hdf5);;"
+            "All Files (*)",
         )
         if not file_path:
             return
@@ -767,7 +925,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             return
         base_name = source_path.stem
         export_dir = source_path.parent / EXPORT_DIR_NAME
-        output_path = export_dir / f"{base_name}_labeled.hdf5"
+        output_path = export_dir / f"{base_name}_labels.csv"
         try:
             self.label_storage.export(
                 source_path,
@@ -877,21 +1035,147 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             self._log("Data view settings applied.")
 
     def reload_view_config(self) -> None:
-        self.namespace_config = load_yaml(self.view_config_path)
-        self._configure_views_for_session()
+        try:
+            self.namespace_config = load_yaml(self.view_config_path)
+        except (OSError, yaml.YAMLError) as exc:
+            QMessageBox.warning(self, "Config Error", str(exc))
+            return
+        self._apply_view_config_controls()
         self._log(f"View config loaded: {self.view_config_path}")
 
     def save_current_view_config(self) -> None:
-        data = dict(self.namespace_config)
-        data["current_data_views"] = self._current_view_config_rows()
-        data["overlay"] = self._overlay_config()
+        data = self._view_config_with_current_state(self.namespace_config)
         save_path = self.view_config_path
         if not save_path.exists():
             save_path = DEFAULT_VIEW_CONFIG_FILE
-        with save_path.open("w", encoding="utf-8") as file:
-            yaml.safe_dump(data, file, sort_keys=False, allow_unicode=True)
+        self._save_view_config_data(save_path, data)
+
+    def open_data_view_settings(self) -> None:
+        """Open structured settings for core data-view parameters."""
+        dialog = DataViewSettingsDialog(
+            self.view_config_path,
+            self.namespace_config,
+            self.spinBox_viewCount.value(),
+            self.comboBox_plotMode.currentText(),
+            self.doubleSpinBox_zoomSeconds.value(),
+            self,
+        )
+        if not dialog.exec_():
+            return
+        self.view_config_path = dialog.config_path
+        self.namespace_config = dialog.result_config()
+        self._apply_view_config_controls()
+        if dialog.action == "save":
+            data = self._view_config_with_current_state(self.namespace_config)
+            self._save_view_config_data(self.view_config_path, data)
+            return
+        self._log("Data view settings applied for the current session.")
+
+    def browse_view_config(self) -> None:
+        """Select another view YAML and apply it immediately."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select View Config",
+            str(self.view_config_path.parent),
+            "YAML Files (*.yaml *.yml);;All Files (*)",
+        )
+        if not path:
+            return
+        self.view_config_path = Path(path)
+        self.reload_view_config()
+
+    def edit_view_config_yaml(self) -> None:
+        """Edit view YAML source and reload the saved file."""
+        dialog = YamlConfigEditorDialog(
+            "View Config YAML",
+            self.view_config_path,
+            self,
+        )
+        if dialog.exec_() and dialog.saved_path is not None:
+            self.view_config_path = dialog.saved_path
+            self.reload_view_config()
+
+    def edit_app_settings_yaml(self) -> None:
+        """Edit application defaults; changes take effect after restart."""
+        dialog = YamlConfigEditorDialog(
+            "Application Settings YAML",
+            APP_SETTINGS_FILE,
+            self,
+        )
+        if dialog.exec_() and dialog.saved_path is not None:
+            self._log(
+                f"App settings saved: {dialog.saved_path}. "
+                "Restart the application to apply startup defaults."
+            )
+
+    def edit_hdf5_mapping_yaml(self) -> None:
+        """Edit or browse the HDF5 mapping used by later imports."""
+        dialog = YamlConfigEditorDialog(
+            "HDF5 Mapping YAML",
+            self.hdf5_mapping_path,
+            self,
+        )
+        if dialog.exec_() and dialog.saved_path is not None:
+            self.hdf5_mapping_path = dialog.saved_path
+            self._log(
+                f"HDF5 mapping selected: {self.hdf5_mapping_path}. "
+                "It will be used by the next import."
+            )
+
+    def _view_config_with_current_state(self, source: Dict) -> Dict:
+        """Merge runtime controls and selected streams into view config."""
+        data = dict(source)
+        data["view_settings"] = {
+            "view_count": self.spinBox_viewCount.value(),
+            "plot_mode": self.comboBox_plotMode.currentText(),
+            "zoom_seconds": self.doubleSpinBox_zoomSeconds.value(),
+        }
+        data["current_data_views"] = self._current_view_config_rows()
+        data["overlay"] = self._overlay_config()
+        return data
+
+    def _save_view_config_data(self, save_path: Path, data: Dict) -> None:
+        """Validate and write a structured view configuration."""
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            with save_path.open("w", encoding="utf-8") as config_file:
+                yaml.safe_dump(
+                    data,
+                    config_file,
+                    sort_keys=False,
+                    allow_unicode=True,
+                )
+        except OSError as exc:
+            QMessageBox.warning(self, "Config Error", str(exc))
+            return
+        self.view_config_path = save_path
         self.namespace_config = data
         self._log(f"Current view config saved: {save_path}")
+
+    def _apply_view_config_controls(self) -> None:
+        """Apply loaded core settings and rebuild views only when needed."""
+        settings = self._view_settings_config()
+        view_count = int(settings.get("view_count", PREVIEW_DATA_VIEW_COUNT))
+        plot_mode = str(settings.get("plot_mode", "global_cursor"))
+        zoom_seconds = float(settings.get("zoom_seconds", DEFAULT_ZOOM_SECONDS))
+        count_changed = view_count != self.spinBox_viewCount.value()
+        for widget, setter, value in (
+            (self.spinBox_viewCount, self.spinBox_viewCount.setValue, view_count),
+            (self.comboBox_plotMode, self.comboBox_plotMode.setCurrentText, plot_mode),
+            (
+                self.doubleSpinBox_zoomSeconds,
+                self.doubleSpinBox_zoomSeconds.setValue,
+                zoom_seconds,
+            ),
+        ):
+            was_blocked = widget.blockSignals(True)
+            setter(value)
+            widget.blockSignals(was_blocked)
+        if count_changed:
+            self._build_data_views(self.spinBox_viewCount.value())
+        elif self.session is not None:
+            self._configure_views_for_session()
+        self.apply_view_interaction_settings(log=False)
 
     def fit_all_data_views(self) -> None:
         """모든 데이터 뷰에 개별 Fit 버튼과 동일한 동작을 적용합니다."""
@@ -995,6 +1279,11 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
     def _overlay_config(self) -> dict:
         overlay = self.namespace_config.get("overlay", {})
         return overlay if isinstance(overlay, dict) else {}
+
+    def _view_settings_config(self) -> dict:
+        """Return persisted core data-view controls."""
+        settings = self.namespace_config.get("view_settings", {})
+        return settings if isinstance(settings, dict) else {}
 
     def _depth_visualization_config(self) -> dict:
         """Return config-driven, preview-only depth rendering options."""
@@ -1244,9 +1533,9 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         return self.timeline_start_sec + self._timeline_duration_sec() * ratio
 
     def _default_zoom_seconds(self) -> float:
-        timeline = self.namespace_config.get("timeline", {})
-        if isinstance(timeline, dict) and "default_zoom_seconds" in timeline:
-            return float(timeline["default_zoom_seconds"])
+        settings = self._view_settings_config()
+        if "zoom_seconds" in settings:
+            return float(settings["zoom_seconds"])
         return DEFAULT_ZOOM_SECONDS
 
     def _update_timestamp_label(self) -> None:
@@ -1273,18 +1562,27 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.pushButton_left.setEnabled(has_session)
         self.pushButton_right.setEnabled(has_session)
         self.pushButton_fitAllViews.setEnabled(has_session)
+        self.action_export_labels.setEnabled(has_timeline)
         if not has_timeline:
             self.label_filePath.setText("File: No file loaded.")
             self.label_timestamp.setText("Timestamp: 0 / 0 | Class: None")
             self.pushButton_previous.setEnabled(False)
             self.pushButton_next.setEnabled(False)
+            self.action_previous_file.setEnabled(False)
+            self.action_next_file.setEnabled(False)
             return
         if not has_session:
             self.pushButton_previous.setEnabled(False)
             self.pushButton_next.setEnabled(False)
+            self.action_previous_file.setEnabled(False)
+            self.action_next_file.setEnabled(False)
             return
         self.pushButton_previous.setEnabled(self.session.file_index > 0)
         self.pushButton_next.setEnabled(self.session.file_index < len(self.session.file_list) - 1)
+        self.action_previous_file.setEnabled(self.session.file_index > 0)
+        self.action_next_file.setEnabled(
+            self.session.file_index < len(self.session.file_list) - 1
+        )
 
     def _log(self, message: str, level: str = "INFO") -> None:
         stamp = time.strftime("%H:%M:%S")

@@ -21,9 +21,18 @@ supported_extensions:
   - ".mcap"
   - ".h5"
   - ".hdf5"
+  - ".mp4"
+  - ".jpg"
+  - ".jpeg"
+  - ".png"
+  - ".bmp"
+  - ".tif"
+  - ".tiff"
+  - ".webp"
 
 preview:
   data_view_count: 9  # 기본 데이터 뷰 개수.
+  default_media_fps: 30.0  # 이미지 폴더 및 FPS 정보가 없는 영상의 기본 FPS.
   image_topic_limit: 0  # MCAP 이미지 topic 로드 제한; 0은 전체.
   numeric_topic_limit: 0  # MCAP numeric topic 로드 제한; 0은 전체.
   max_image_frames: 0  # stream당 이미지 frame 제한; 0은 전체.

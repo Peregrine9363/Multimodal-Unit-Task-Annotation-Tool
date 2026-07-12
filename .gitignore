@@ -24,6 +24,7 @@ venv/
 
 reference/
 label/
+datasets/
 *.log
 
 # Large local datasets should be managed outside git.

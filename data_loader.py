@@ -21,10 +21,17 @@ from app_config import (
     MAX_IMAGE_FRAMES,
     MAX_NUMERIC_SAMPLES,
     NUMERIC_TOPIC_LIMIT,
+    PREVIEW_DEFAULT_MEDIA_FPS,
     SUPPORTED_EXTENSIONS,
 )
 from custom_msg_parser import LocalCustomMessageParser
 from data_models import DataStream, DatasetSession, TopicInfo
+from media_sources import (
+    IMAGE_EXTENSIONS,
+    ImageFolderSequence,
+    VideoFrameSequence,
+    discover_image_sequence,
+)
 
 
 ProgressCallback = Callable[[int, str], None]
@@ -65,7 +72,7 @@ def _format_group(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix in (".h5", ".hdf5"):
         return "hdf5"
-    if suffix in (".jpg", ".jpeg", ".png"):
+    if suffix in IMAGE_EXTENSIONS:
         return "image"
     if suffix in (".yaml", ".yml"):
         return "yaml"
@@ -82,6 +89,10 @@ def _extension_priority(path: Path) -> int:
         ".jpg": 4,
         ".jpeg": 4,
         ".png": 4,
+        ".bmp": 4,
+        ".tif": 4,
+        ".tiff": 4,
+        ".webp": 4,
         ".txt": 5,
         ".yaml": 6,
         ".yml": 6,
@@ -186,7 +197,9 @@ class DatasetLoader:
                 self.full_data,
             )
             return loader.load(file_path, workspace, file_list, file_index)
-        if suffix in (".jpg", ".jpeg", ".png"):
+        if suffix == ".mp4":
+            return self._load_video(file_path, workspace, file_list, file_index)
+        if suffix in IMAGE_EXTENSIONS:
             return self._load_image(file_path, workspace, file_list, file_index)
         if suffix in (".txt", ".yaml", ".yml"):
             return self._load_text(file_path, workspace, file_list, file_index)
@@ -195,6 +208,16 @@ class DatasetLoader:
         if suffix in (".h5", ".hdf5"):
             return self._load_hdf5(file_path, workspace, file_list, file_index)
         raise ValueError(f"Unsupported file type: {suffix}")
+
+    def load_image_folder(self, folder_path: Path) -> DatasetSession:
+        """Load all directly contained images as one ordered sequence."""
+        folder_path = folder_path.expanduser().resolve()
+        image_paths = discover_image_sequence(folder_path)
+        if not image_paths:
+            raise FileNotFoundError(
+                f"No supported image files found in folder: {folder_path}"
+            )
+        return self._load_image_sequence(folder_path, image_paths)
 
     def _base_session(
         self,
@@ -227,6 +250,102 @@ class DatasetLoader:
         session.end_time_sec = 1.0
         session.duration_sec = 1.0
         self.progress_callback(100, "Image import completed.")
+        return session
+
+    def _load_image_sequence(
+        self,
+        folder_path: Path,
+        image_paths: List[Path],
+    ) -> DatasetSession:
+        """Build one lazy image stream from every image in a folder."""
+        self.progress_callback(
+            10,
+            f"Loading image sequence: {folder_path.name}",
+        )
+        fps = max(PREVIEW_DEFAULT_MEDIA_FPS, 1e-6)
+        timestamps = np.arange(len(image_paths), dtype=float) / fps
+        image_sequence = ImageFolderSequence(image_paths)
+        stream = DataStream(
+            "images",
+            "image",
+            timestamps,
+            image_bytes=image_sequence,
+            source_type="image_sequence",
+            original_message_count=len(image_paths),
+        )
+        session = self._base_session(
+            folder_path,
+            folder_path.parent,
+            [folder_path],
+            0,
+            "image_sequence",
+        )
+        session.streams[stream.name] = stream
+        session.message_count = len(image_paths)
+        session.end_time_sec = float(timestamps[-1]) if len(timestamps) else 0.0
+        session.duration_sec = session.end_time_sec
+        _add_metadata_stream(
+            session,
+            "image_sequence",
+            "Image Sequence",
+            [
+                f"Folder: {folder_path}",
+                f"Frame count: {len(image_paths)}",
+                f"Frame rate [FPS]: {fps:.6g}",
+                f"First image: {image_paths[0].name}",
+                f"Last image: {image_paths[-1].name}",
+            ],
+        )
+        self.progress_callback(100, "Image sequence import completed.")
+        return session
+
+    def _load_video(
+        self,
+        file_path: Path,
+        workspace: Path,
+        file_list: List[Path],
+        file_index: int,
+    ) -> DatasetSession:
+        """Build a lazy image stream from an MP4 video."""
+        self.progress_callback(10, f"Opening video: {file_path.name}")
+        video_sequence = VideoFrameSequence(file_path)
+        fps = (
+            video_sequence.fps
+            if np.isfinite(video_sequence.fps) and video_sequence.fps > 0.0
+            else PREVIEW_DEFAULT_MEDIA_FPS
+        )
+        timestamps = np.arange(len(video_sequence), dtype=float) / fps
+        stream = DataStream(
+            "video",
+            "image",
+            timestamps,
+            image_bytes=video_sequence,
+            source_type="video/mp4",
+            original_message_count=len(video_sequence),
+        )
+        session = self._base_session(
+            file_path,
+            workspace,
+            file_list,
+            file_index,
+            "mp4",
+        )
+        session.streams[stream.name] = stream
+        session.message_count = len(video_sequence)
+        session.end_time_sec = float(timestamps[-1]) if len(timestamps) else 0.0
+        session.duration_sec = session.end_time_sec
+        _add_metadata_stream(
+            session,
+            "video",
+            "Video",
+            [
+                f"File: {file_path}",
+                f"Frame count: {len(video_sequence)}",
+                f"Frame rate [FPS]: {fps:.6g}",
+                f"Resolution: {video_sequence.width} x {video_sequence.height}",
+            ],
+        )
+        self.progress_callback(100, "Video import completed.")
         return session
 
     def _load_text(

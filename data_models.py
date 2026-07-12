@@ -7,7 +7,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -31,7 +31,7 @@ class DataStream:
     stream_type: str
     timestamps: np.ndarray
     values: Optional[np.ndarray] = None
-    image_bytes: List[bytes] = field(default_factory=list)
+    image_bytes: Sequence[bytes] = field(default_factory=list)
     labels: List[str] = field(default_factory=list)
     source_type: str = ""
     original_message_count: int = 0

@@ -465,7 +465,12 @@ class DataViewWidget(QWidget):
         index = self.stream.nearest_index(timestamp_sec)
         if index >= len(self.stream.image_bytes):
             return
-        image_rgb = self._render_image_payload(self.stream.image_bytes[index])
+        try:
+            payload = self.stream.image_bytes[index]
+            image_rgb = self._render_image_payload(payload)
+        except (IndexError, OSError, ValueError) as exc:
+            self.image_label.setText(f"Image decode failed.\n{exc}")
+            return
         if image_rgb is None:
             self.image_label.setText("Image decode failed.")
             return

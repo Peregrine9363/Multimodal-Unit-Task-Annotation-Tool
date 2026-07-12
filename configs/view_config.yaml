@@ -26,6 +26,10 @@ default_streams:
 - /left/robot/current/joint_position
 - /left/robot/current/joint_velocity
 - /recog/states
+view_settings:
+  view_count: 9  # Number of data views created at startup.
+  plot_mode: global_cursor  # global_cursor or follow_window.
+  zoom_seconds: 1.0  # Follow-window width in seconds.
 overlay:
   enabled: true
   precision: 6

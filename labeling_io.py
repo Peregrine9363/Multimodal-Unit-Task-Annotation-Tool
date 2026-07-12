@@ -5,8 +5,9 @@
 # Label segment import/export helpers
 # ==============================================================================
 
-from pathlib import Path
+import csv
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import h5py
@@ -30,7 +31,7 @@ class LabelImportResult:
 
 
 class LabelStorage:
-    """HDF5/MCAP 입력에 공통으로 사용할 라벨 load/export 유틸리티입니다."""
+    """공통 CSV export와 CSV/기존 HDF5 import를 제공합니다."""
 
     def __init__(self, label_dataset_name: str, logger=print):
         self.label_dataset_name = label_dataset_name
@@ -44,7 +45,9 @@ class LabelStorage:
         return self.import_labels(file_path).segments
 
     def import_labels(self, file_path: Path) -> LabelImportResult:
-        """라벨 HDF5에서 frame-wise label 또는 segment table을 읽습니다."""
+        """CSV 또는 기존 HDF5 라벨 파일을 읽습니다."""
+        if file_path.suffix.lower() == ".csv":
+            return self._import_csv(file_path)
         with h5py.File(file_path, "r") as h5_file:
             metadata = self._read_metadata(h5_file)
             segments, total_frames = self._read_label_payload(h5_file)
@@ -67,12 +70,100 @@ class LabelStorage:
         total_frames: int,
         timestamp_bounds: Optional[Tuple[float, float]] = None,
     ) -> None:
-        """입력 포맷에 맞는 라벨 HDF5를 저장합니다."""
-        suffix = source_path.suffix.lower()
-        if suffix in (".h5", ".hdf5"):
-            self._export_labeled_hdf5(source_path, output_path, segments, total_frames)
-            return
-        self._export_label_sidecar(source_path, output_path, segments, total_frames, timestamp_bounds)
+        """모든 입력 포맷의 frame-wise 라벨을 단일 CSV로 저장합니다."""
+        self._export_csv(
+            output_path,
+            segments,
+            total_frames,
+            timestamp_bounds,
+        )
+
+    def _import_csv(self, file_path: Path) -> LabelImportResult:
+        """Read a frame-wise label CSV and reconstruct contiguous segments."""
+        with file_path.open("r", encoding="utf-8", newline="") as csv_file:
+            reader = csv.DictReader(csv_file)
+            self._validate_csv_columns(reader.fieldnames)
+            rows = list(reader)
+        if not rows:
+            return LabelImportResult([], 0, source_format="csv")
+
+        frame_indices = [self._csv_int(row, "frame_index") for row in rows]
+        if min(frame_indices) < 0:
+            raise ValueError("CSV frame_index values must be non-negative.")
+        if len(frame_indices) != len(set(frame_indices)):
+            raise ValueError("CSV contains duplicate frame_index values.")
+
+        total_frames = max(frame_indices) + 1
+        labels = np.full((total_frames, 2), -1, dtype=np.int32)
+        timestamps = []
+        for frame_index, row in zip(frame_indices, rows):
+            labels[frame_index, 0] = self._csv_int(row, "class_id_1", -1)
+            labels[frame_index, 1] = self._csv_int(row, "class_id_2", -1)
+            timestamps.append(float(row["timestamp_sec"]))
+        finite_times = [value for value in timestamps if np.isfinite(value)]
+        timestamp_bounds = None
+        if finite_times:
+            timestamp_bounds = (min(finite_times), max(finite_times))
+        return LabelImportResult(
+            segments=self._dataset_to_segments(labels),
+            total_frames=total_frames,
+            source_format="csv",
+            label_domain="frame_index",
+            timestamp_bounds=timestamp_bounds,
+        )
+
+    def _validate_csv_columns(self, field_names: Optional[List[str]]) -> None:
+        """Validate the public frame-wise CSV label schema."""
+        required = {
+            "frame_index",
+            "timestamp_sec",
+            "class_id_1",
+            "class_id_2",
+        }
+        missing = required.difference(field_names or [])
+        if missing:
+            raise ValueError(
+                "Label CSV is missing required columns: "
+                + ", ".join(sorted(missing))
+            )
+
+    def _csv_int(self, row: Dict[str, str], key: str, default: int = 0) -> int:
+        """Parse an integer CSV field while allowing an empty default value."""
+        value = str(row.get(key, "")).strip()
+        if not value:
+            return default
+        return int(value)
+
+    def _export_csv(
+        self,
+        output_path: Path,
+        segments: List[LabelSegment],
+        total_frames: int,
+        timestamp_bounds: Optional[Tuple[float, float]],
+    ) -> None:
+        """Write one frame-wise CSV containing the complete label timeline."""
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        labels = self._segments_to_frame_labels(segments, total_frames)
+        field_names = (
+            "frame_index",
+            "timestamp_sec",
+            "class_id_1",
+            "class_id_2",
+        )
+        with output_path.open("w", encoding="utf-8", newline="") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=field_names)
+            writer.writeheader()
+            for frame_index, frame_labels in enumerate(labels):
+                writer.writerow({
+                    "frame_index": frame_index,
+                    "timestamp_sec": self._index_to_timestamp(
+                        frame_index,
+                        timestamp_bounds,
+                        total_frames,
+                    ),
+                    "class_id_1": int(frame_labels[0]),
+                    "class_id_2": int(frame_labels[1]),
+                })
 
     def _dataset_to_segments(self, dataset) -> List[LabelSegment]:
         is_1d = dataset.ndim == 1

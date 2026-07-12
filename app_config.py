@@ -63,7 +63,22 @@ DEFAULT_APP_THEME = APP_SETTINGS.get("default_app_theme", "Light")
 DEFAULT_DATA_VIEW_BACKGROUND = APP_SETTINGS.get("default_data_view_background", "Dark")
 
 SUPPORTED_EXTENSIONS = tuple(
-    APP_SETTINGS.get("supported_extensions", [".mcap", ".h5", ".hdf5"])
+    APP_SETTINGS.get(
+        "supported_extensions",
+        [
+            ".mcap",
+            ".h5",
+            ".hdf5",
+            ".mp4",
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".bmp",
+            ".tif",
+            ".tiff",
+            ".webp",
+        ],
+    )
 )
 
 WINDOW_SETTINGS = APP_SETTINGS.get("window", {}) or {}
@@ -76,6 +91,7 @@ DEFAULT_WINDOW_HEIGHT = int(WINDOW_SETTINGS.get("default_height", 1080))
 
 PREVIEW_SETTINGS = APP_SETTINGS.get("preview", {}) or {}
 PREVIEW_DATA_VIEW_COUNT = int(PREVIEW_SETTINGS.get("data_view_count", 9))
+PREVIEW_DEFAULT_MEDIA_FPS = float(PREVIEW_SETTINGS.get("default_media_fps", 30.0))
 PREVIEW_IMAGE_TOPIC_LIMIT = int(PREVIEW_SETTINGS.get("image_topic_limit", 0))
 PREVIEW_NUMERIC_TOPIC_LIMIT = int(PREVIEW_SETTINGS.get("numeric_topic_limit", 0))
 PREVIEW_MAX_IMAGE_FRAMES = int(PREVIEW_SETTINGS.get("max_image_frames", 0))
