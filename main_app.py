@@ -163,6 +163,9 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.data_view_splitter: Optional[QSplitter] = None
         self.floating_view_windows: Dict[int, QDialog] = {}
         self.dock_locations: Dict[int, tuple[QSplitter, int]] = {}
+        # 사용자가 선택한 stream은 실행 중에만 유지합니다.
+        # 앱을 재시작하면 빈 상태에서 기본 설정을 다시 적용합니다.
+        self._runtime_view_streams: Dict[int, str] = {}
 
         self._setup_ui_components()
         self._connect_signals()
@@ -796,15 +799,53 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             dock.set_namespace_groups(namespace_groups, namespace_labels)
             dock.view.show_placeholder(f"Data {dock.index + 1}")
         self.apply_view_interaction_settings(log=False)
-        for index, name in enumerate(defaults[:len(self.data_docks)]):
-            self.assign_stream_to_view(index, name)
-            self.data_docks[index].select_stream(name)
+        for index, dock in enumerate(self.data_docks):
+            stream_name = self._session_view_stream(index, names, defaults)
+            if not stream_name:
+                continue
+            self.assign_stream_to_view(
+                index,
+                stream_name,
+                remember_selection=False,
+            )
+            dock.select_stream(stream_name)
         self.label_filePath.setText(f"File: {self.session.file_path.name}")
 
-    def assign_stream_to_view(self, view_index: int, stream_name: str) -> None:
+    def _session_view_stream(
+        self,
+        view_index: int,
+        names: List[str],
+        defaults: List[str],
+    ) -> str:
+        """Resolve a runtime selection, falling back without overwriting it."""
+        preferred = self._runtime_view_streams.get(view_index, "")
+        if preferred in names:
+            return preferred
+        if view_index < len(defaults):
+            return defaults[view_index]
+        return ""
+
+    def assign_stream_to_view(
+        self,
+        view_index: int,
+        stream_name: str,
+        *,
+        remember_selection: bool = True,
+    ) -> None:
         if self.session is None or view_index >= len(self.data_docks):
             return
+        if not stream_name:
+            if remember_selection:
+                self._runtime_view_streams.pop(view_index, None)
+            self.data_docks[view_index].view.show_placeholder(
+                f"Data {view_index + 1}"
+            )
+            return
         stream = self.session.get_stream(stream_name)
+        if stream is None:
+            return
+        if remember_selection:
+            self._runtime_view_streams[view_index] = stream_name
         dock = self.data_docks[view_index]
         dock.view.set_stream(stream, self.session.start_time_sec)
         dock.select_stream(stream_name)
@@ -818,6 +859,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         zoom_enabled = self.checkBox_mouseZoom.isChecked()
         tooltip_enabled = self.checkBox_tooltip.isChecked()
         overlay_config = self._overlay_config()
+        depth_config = self._depth_visualization_config()
         for dock in self.data_docks:
             dock.view.default_range_sec = zoom_seconds
             dock.view.set_data_view_background(background)
@@ -830,6 +872,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
                 int(overlay_config.get("precision", 6)),
                 overlay_config,
             )
+            dock.view.set_depth_visualization(depth_config)
         if log:
             self._log("Data view settings applied.")
 
@@ -952,6 +995,11 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
     def _overlay_config(self) -> dict:
         overlay = self.namespace_config.get("overlay", {})
         return overlay if isinstance(overlay, dict) else {}
+
+    def _depth_visualization_config(self) -> dict:
+        """Return config-driven, preview-only depth rendering options."""
+        config = self.namespace_config.get("depth_visualization", {})
+        return config if isinstance(config, dict) else {}
 
     # ==========================================================================
     # Timeline and labels

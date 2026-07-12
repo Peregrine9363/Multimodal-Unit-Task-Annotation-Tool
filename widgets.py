@@ -15,6 +15,7 @@ import numpy as np
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/il_dataset_processor_matplotlib")
 Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
 
+import cv2
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
@@ -37,7 +38,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from data_loader import decode_image_bytes
+from data_loader import decode_depth_image_bytes, decode_image_bytes
 from data_models import DataStream
 
 
@@ -76,6 +77,30 @@ class TimelineSlider(QSlider):
 class DataViewWidget(QWidget):
     """Display one data stream as image, graph, or text."""
 
+    # ======================================================================
+    # Depth preview visualization
+    # ======================================================================
+    DEPTH_COLORMAPS = {
+        "grayscale": None,
+        "jet": cv2.COLORMAP_JET,
+        "turbo": cv2.COLORMAP_TURBO,
+        "viridis": cv2.COLORMAP_VIRIDIS,
+        "inferno": cv2.COLORMAP_INFERNO,
+        "plasma": cv2.COLORMAP_PLASMA,
+        "magma": cv2.COLORMAP_MAGMA,
+    }
+    DEFAULT_DEPTH_VISUALIZATION = {
+        "enabled": True,
+        "colormap": "jet",
+        "range_mode": "auto",
+        "min_value": 0.0,
+        "max_value": 2000.0,
+        "contrast_power": 1.0,
+        "invalid_value": 0.0,
+        "invalid_color": [0, 0, 0],
+        "stream_name_tokens": ["depth", "disparity"],
+        "source_type_tokens": ["16uc1", "32fc1", "mono16"],
+    }
     BACKGROUND_COLORS = {
         "Dark": {
             "background": "#1A1A1A",
@@ -119,6 +144,7 @@ class DataViewWidget(QWidget):
         self.mouse_zoom_step = 1.15
         self.tooltip_precision = 6
         self.tooltip_config = self._default_tooltip_config()
+        self.depth_visualization_config = dict(self.DEFAULT_DEPTH_VISUALIZATION)
         self.plot_navigation_mode = "global_cursor"
         self._is_dragging_timestamp = False
         self._drag_start_canvas_x: Optional[float] = None
@@ -126,6 +152,8 @@ class DataViewWidget(QWidget):
         self._drag_seconds_per_pixel = 0.0
         self.text_zoom_point_size = 10
         self._current_image_rgb: Optional[np.ndarray] = None
+        self._current_depth_image: Optional[np.ndarray] = None
+        self._current_depth_range: Optional[tuple[float, float]] = None
         self._current_image_index = 0
         self.background_mode = "Dark"
         self.colors = self.BACKGROUND_COLORS[self.background_mode]
@@ -239,6 +267,21 @@ class DataViewWidget(QWidget):
         self.tooltip_precision = int(
             self.tooltip_config.get("precision", self.tooltip_precision)
         )
+
+    def set_depth_visualization(self, config: Optional[dict]) -> None:
+        """Set preview-only rendering options for depth image streams."""
+        merged = dict(self.DEFAULT_DEPTH_VISUALIZATION)
+        if isinstance(config, dict):
+            merged.update(config)
+        merged["colormap"] = str(merged.get("colormap", "jet")).strip().lower()
+        if merged["colormap"] not in self.DEPTH_COLORMAPS:
+            merged["colormap"] = "jet"
+        merged["range_mode"] = str(merged.get("range_mode", "auto")).strip().lower()
+        if merged["range_mode"] not in ("auto", "manual"):
+            merged["range_mode"] = "auto"
+        self.depth_visualization_config = merged
+        if self.stream is not None and self.stream.stream_type == "image":
+            self._update_image(self.current_timestamp_sec)
 
     def set_plot_navigation_mode(self, mode_name: str) -> None:
         """Set how timeseries plots track the current timestamp."""
@@ -422,7 +465,7 @@ class DataViewWidget(QWidget):
         index = self.stream.nearest_index(timestamp_sec)
         if index >= len(self.stream.image_bytes):
             return
-        image_rgb = decode_image_bytes(self.stream.image_bytes[index])
+        image_rgb = self._render_image_payload(self.stream.image_bytes[index])
         if image_rgb is None:
             self.image_label.setText("Image decode failed.")
             return
@@ -439,6 +482,105 @@ class DataViewWidget(QWidget):
             Qt.SmoothTransformation,
         )
         self.image_label.setPixmap(scaled)
+
+    def _render_image_payload(self, payload: bytes) -> Optional[np.ndarray]:
+        """Decode an image payload without modifying the stored source bytes."""
+        self._current_depth_image = None
+        self._current_depth_range = None
+        if self._should_render_as_depth():
+            depth_image = decode_depth_image_bytes(payload)
+            if depth_image is not None and depth_image.ndim == 2:
+                self._current_depth_image = depth_image
+                return self._depth_to_rgb(depth_image)
+        return decode_image_bytes(payload)
+
+    def _should_render_as_depth(self) -> bool:
+        """Identify depth streams from configured name and source-type tokens."""
+        if self.stream is None:
+            return False
+        if not bool(self.depth_visualization_config.get("enabled", True)):
+            return False
+        name = self.stream.name.lower()
+        source_type = self.stream.source_type.lower()
+        name_tokens = self._depth_detection_tokens("stream_name_tokens")
+        source_tokens = self._depth_detection_tokens("source_type_tokens")
+        return (
+            any(token in name for token in name_tokens)
+            or any(token in source_type for token in source_tokens)
+        )
+
+    def _depth_detection_tokens(self, config_key: str) -> List[str]:
+        """Return non-empty, normalized depth detection tokens."""
+        tokens = self.depth_visualization_config.get(config_key, [])
+        if not isinstance(tokens, (list, tuple)):
+            return []
+        return [str(token).strip().lower() for token in tokens if str(token).strip()]
+
+    def _depth_to_rgb(self, depth_image: np.ndarray) -> np.ndarray:
+        """Convert native depth values to an RGB preview image only."""
+        values = np.asarray(depth_image, dtype=np.float32)
+        invalid_value = float(self.depth_visualization_config.get("invalid_value", 0.0))
+        valid = np.isfinite(values) & (values != invalid_value)
+        min_value, max_value = self._depth_display_range(values, valid)
+        self._current_depth_range = (min_value, max_value)
+
+        normalized = np.zeros(values.shape, dtype=np.float32)
+        normalized[valid] = np.clip(
+            (values[valid] - min_value) / (max_value - min_value),
+            0.0,
+            1.0,
+        )
+        contrast_power = max(
+            0.05,
+            float(self.depth_visualization_config.get("contrast_power", 1.0)),
+        )
+        image_u8 = np.asarray(
+            np.power(normalized, contrast_power) * 255.0,
+            dtype=np.uint8,
+        )
+        rgb = self._apply_depth_colormap(image_u8)
+        rgb[~valid] = self._invalid_depth_color()
+        return rgb
+
+    def _depth_display_range(
+        self,
+        values: np.ndarray,
+        valid: np.ndarray,
+    ) -> tuple[float, float]:
+        """Resolve the manual or per-frame automatic display range."""
+        range_mode = str(self.depth_visualization_config.get("range_mode", "auto"))
+        if range_mode == "manual":
+            min_value = float(self.depth_visualization_config.get("min_value", 0.0))
+            max_value = float(self.depth_visualization_config.get("max_value", 1.0))
+        elif np.any(valid):
+            min_value = float(np.min(values[valid]))
+            max_value = float(np.max(values[valid]))
+        else:
+            min_value, max_value = 0.0, 1.0
+        if max_value <= min_value:
+            max_value = min_value + 1.0
+        return min_value, max_value
+
+    def _apply_depth_colormap(self, image_u8: np.ndarray) -> np.ndarray:
+        """Apply the configured OpenCV colormap and return RGB pixels."""
+        colormap_name = str(
+            self.depth_visualization_config.get("colormap", "jet")
+        ).lower()
+        colormap = self.DEPTH_COLORMAPS.get(colormap_name)
+        if colormap is None:
+            return np.repeat(image_u8[:, :, None], 3, axis=2)
+        image_bgr = cv2.applyColorMap(image_u8, colormap)
+        return cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+    def _invalid_depth_color(self) -> np.ndarray:
+        """Return the configured RGB color for invalid depth pixels."""
+        color = self.depth_visualization_config.get("invalid_color", [0, 0, 0])
+        if not isinstance(color, (list, tuple)) or len(color) < 3:
+            color = [0, 0, 0]
+        return np.asarray(
+            [int(np.clip(value, 0, 255)) for value in color[:3]],
+            dtype=np.uint8,
+        )
 
     def _on_image_wheel(self, event) -> None:
         if not self.mouse_zoom_enabled:
@@ -478,7 +620,22 @@ class DataViewWidget(QWidget):
         ) and image_pos is not None:
             x_pos, y_pos = image_pos
             rgb = self._current_image_rgb[y_pos, x_pos]
-            lines.append(f"Pixel: x={x_pos}, y={y_pos}, RGB={tuple(int(v) for v in rgb[:3])}")
+            if self._current_depth_image is not None:
+                depth_value = self._current_depth_image[y_pos, x_pos]
+                range_text = ""
+                if self._current_depth_range is not None:
+                    min_value, max_value = self._current_depth_range
+                    range_text = f", range={min_value:.6g}..{max_value:.6g}"
+                lines.append(
+                    "Pixel: "
+                    f"x={x_pos}, y={y_pos}, depth={float(depth_value):.6g}, "
+                    f"RGB={tuple(int(v) for v in rgb[:3])}{range_text}"
+                )
+            else:
+                lines.append(
+                    f"Pixel: x={x_pos}, y={y_pos}, "
+                    f"RGB={tuple(int(v) for v in rgb[:3])}"
+                )
         self._show_rich_tooltip(self.image_label, pos, lines)
 
     def _label_pos_to_image_pos(self, pos: QPoint) -> Optional[tuple[int, int]]:
@@ -751,6 +908,7 @@ class DataViewWidget(QWidget):
         return colors.get("neutral", "#202428")
 
     def _numpy_to_pixmap(self, image_rgb: np.ndarray) -> QPixmap:
+        image_rgb = np.ascontiguousarray(image_rgb, dtype=np.uint8)
         height, width, channels = image_rgb.shape
         bytes_per_line = channels * width
         image = QImage(image_rgb.data, width, height, bytes_per_line, QImage.Format_RGB888)
@@ -912,8 +1070,7 @@ class DataDockWidget(QDockWidget):
         self.combo.blockSignals(False)
 
     def _on_combo_changed(self, name: str) -> None:
-        if name:
-            self.change_callback(self.index, name)
+        self.change_callback(self.index, name)
 
     def set_popped_out(self, is_popped_out: bool) -> None:
         """팝업/도킹 상태에 맞춰 버튼 텍스트를 갱신합니다."""

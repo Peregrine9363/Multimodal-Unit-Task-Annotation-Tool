@@ -46,6 +46,17 @@ overlay:
   - timestamp
   - cursor
   - value
+depth_visualization:
+  enabled: true  # Apply color mapping only while previewing depth images.
+  colormap: turbo  # grayscale, jet, turbo, viridis, inferno, plasma, or magma.
+  range_mode: manual  # auto uses each frame; manual uses min/max below.
+  min_value: 200.0  # Lower display bound in native depth units.
+  max_value: 800.0  # Upper display bound in native depth units.
+  contrast_power: 1.0  # Values below 1.0 emphasize near-depth differences.
+  invalid_value: 0.0  # Native value rendered with invalid_color.
+  invalid_color: [0, 0, 0]  # RGB preview color for invalid pixels.
+  stream_name_tokens: [depth, disparity]  # Stream names treated as depth.
+  source_type_tokens: [16uc1, 32fc1, mono16]  # ROS encodings treated as depth.
 sources:
   mcap:
     namespaces:
