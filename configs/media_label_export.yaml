@@ -1,0 +1,21 @@
+# media_label_export.yaml
+# ==============================================================================
+# Label and media export settings
+# ==============================================================================
+
+mode: split  # basic: label CSV only, split: CSV plus class-organized media.
+output_dir_name: label  # Export root beside the imported file or image folder.
+labels_file_suffix: _labels.csv  # Frame-wise label CSV suffix.
+
+hdf5:
+  mode: embedded  # embedded: copied HDF5 with labels, csv: label CSV only.
+  output_name_suffix: _labeled  # Original .h5/.hdf5 extension is preserved.
+  export_csv_sidecar: false  # Also create the frame-wise CSV when embedded.
+
+split:
+  metadata_file_name: metadata.csv  # Path-to-class mapping at the export root.
+  class_folder_template: class_{class_id}  # Used when class_names has no entry.
+  class_names: {}  # Optional mapping, for example: {0: idle, 1: approach}.
+  duplicate_multilabel_segments: true  # Export a yellow segment to every class.
+  video_codec: mp4v  # FourCC used for split MP4 files.
+  image_segment_template: "{source}_{start:06d}_{end:06d}"

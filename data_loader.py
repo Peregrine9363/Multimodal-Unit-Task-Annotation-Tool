@@ -6,6 +6,7 @@
 # ==============================================================================
 
 import io
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
@@ -31,6 +32,7 @@ from media_sources import (
     ImageFolderSequence,
     VideoFrameSequence,
     discover_image_sequence,
+    natural_path_key,
 )
 
 
@@ -40,11 +42,24 @@ HDF5_DATASET_PROGRESS_INTERVAL = 50
 METADATA_STREAM_PREFIX = "metadata/"
 
 
+@dataclass(frozen=True)
+class WorkspaceSelection:
+    """Resolved workspace and navigation entries for one import selection."""
+
+    workspace_path: Path
+    entries: List[Path]
+    selected_index: int
+
+    @property
+    def selected_entry(self) -> Path:
+        return self.entries[self.selected_index]
+
+
 def discover_supported_files(
     path: Path,
     extra_ignored_parts: Tuple[str, ...] = (),
 ) -> List[Path]:
-    """Return sorted supported files from a file or folder path."""
+    """Return every supported file without applying format priority."""
     path = path.expanduser().resolve()
     if path.is_file():
         return [path] if path.suffix.lower() in SUPPORTED_EXTENSIONS else []
@@ -55,49 +70,82 @@ def discover_supported_files(
         and item.suffix.lower() in SUPPORTED_EXTENSIONS
         and not _is_generated_output(item, extra_ignored_parts)
     ]
-    return _filter_highest_priority_format(files)
+    return sorted(files, key=lambda item: (natural_path_key(item), str(item)))
 
 
-def _filter_highest_priority_format(files: List[Path]) -> List[Path]:
-    """Keep only one file format group, preferring rosbag2 MCAP first."""
-    if not files:
-        return []
-    sorted_files = sorted(files, key=lambda item: (_extension_priority(item), item.name))
-    selected_group = _format_group(sorted_files[0])
-    return [item for item in sorted_files if _format_group(item) == selected_group]
+def resolve_workspace_selection(path: Path) -> WorkspaceSelection:
+    """Resolve a selected file/folder into format-neutral navigation entries."""
+    selected_path = path.expanduser().resolve()
+    if selected_path.is_file():
+        workspace_path = selected_path.parent
+        entries = _discover_direct_workspace_entries(workspace_path)
+        selected_entry = (
+            workspace_path
+            if selected_path.suffix.lower() in IMAGE_EXTENSIONS
+            else selected_path
+        )
+    elif selected_path.is_dir():
+        workspace_path = selected_path
+        entries = _discover_direct_workspace_entries(
+            workspace_path,
+            include_image_folders=True,
+        )
+        selected_entry = _selected_folder_entry(workspace_path, entries)
+    else:
+        raise FileNotFoundError(f"Selected import path does not exist: {path}")
+
+    if not entries or selected_entry not in entries:
+        raise FileNotFoundError(f"No supported files found: {path}")
+    return WorkspaceSelection(
+        workspace_path=workspace_path,
+        entries=entries,
+        selected_index=entries.index(selected_entry),
+    )
 
 
-def _format_group(path: Path) -> str:
-    """Return the logical format group used for workspace navigation."""
-    suffix = path.suffix.lower()
-    if suffix in (".h5", ".hdf5"):
-        return "hdf5"
-    if suffix in IMAGE_EXTENSIONS:
-        return "image"
-    if suffix in (".yaml", ".yml"):
-        return "yaml"
-    return suffix.lstrip(".")
+def _discover_direct_workspace_entries(
+    workspace_path: Path,
+    include_image_folders: bool = False,
+) -> List[Path]:
+    """Return direct files, collapsing direct images into one folder entry."""
+    direct_files = [
+        path.resolve()
+        for path in workspace_path.iterdir()
+        if path.is_file()
+        and path.suffix.lower() in SUPPORTED_EXTENSIONS
+        and not _is_generated_output(path)
+    ]
+    image_files = [
+        path for path in direct_files if path.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+    entries = [
+        path for path in direct_files if path.suffix.lower() not in IMAGE_EXTENSIONS
+    ]
+    if image_files:
+        entries.append(workspace_path.resolve())
+    if include_image_folders:
+        entries.extend(
+            path.resolve()
+            for path in workspace_path.iterdir()
+            if path.is_dir() and discover_image_sequence(path)
+        )
+    return sorted(set(entries), key=_workspace_entry_key)
 
 
-def _extension_priority(path: Path) -> int:
-    priority = {
-        ".mcap": 0,
-        ".h5": 1,
-        ".hdf5": 1,
-        ".csv": 2,
-        ".mp4": 3,
-        ".jpg": 4,
-        ".jpeg": 4,
-        ".png": 4,
-        ".bmp": 4,
-        ".tif": 4,
-        ".tiff": 4,
-        ".webp": 4,
-        ".txt": 5,
-        ".yaml": 6,
-        ".yml": 6,
-    }
-    return priority.get(path.suffix.lower(), 99)
+def _selected_folder_entry(
+    workspace_path: Path,
+    entries: List[Path],
+) -> Optional[Path]:
+    """Select a direct image sequence, otherwise the first workspace entry."""
+    resolved_workspace = workspace_path.resolve()
+    if resolved_workspace in entries:
+        return resolved_workspace
+    return entries[0] if entries else None
+
+
+def _workspace_entry_key(path: Path) -> Tuple:
+    """Sort mixed file and image-folder entries naturally by display name."""
+    return natural_path_key(path)
 
 
 def _is_generated_output(path: Path, extra_ignored_parts: Tuple[str, ...] = ()) -> bool:
@@ -165,19 +213,33 @@ class DatasetLoader:
         self.full_data = full_data
 
     def load(self, path: Path) -> DatasetSession:
-        files = discover_supported_files(path)
-        if not files:
-            raise FileNotFoundError(f"No supported files found: {path}")
+        selection = resolve_workspace_selection(path)
+        selected_entry = selection.selected_entry
+        if selected_entry.is_dir():
+            return self.load_image_folder(
+                selected_entry,
+                selection.workspace_path,
+                selection.entries,
+            )
+        return self._load_file(
+            selected_entry,
+            selection.workspace_path,
+            selection.entries,
+            selection.selected_index,
+        )
 
-        selected = files[0]
-        workspace = path.resolve() if path.is_dir() else find_workspace_for_file(selected)
-        file_index = files.index(selected)
-        session = self._load_file(selected, workspace, files, file_index)
-        return session
-
-    def load_exact(self, file_path: Path, file_list: List[Path]) -> DatasetSession:
+    def load_exact(
+        self,
+        file_path: Path,
+        file_list: List[Path],
+        workspace_path: Optional[Path] = None,
+    ) -> DatasetSession:
         file_path = file_path.resolve()
-        workspace = find_workspace_for_file(file_path)
+        workspace = (
+            workspace_path.expanduser().resolve()
+            if workspace_path is not None
+            else find_workspace_for_file(file_path)
+        )
         file_index = file_list.index(file_path) if file_path in file_list else 0
         return self._load_file(file_path, workspace, file_list, file_index)
 
@@ -209,7 +271,12 @@ class DatasetLoader:
             return self._load_hdf5(file_path, workspace, file_list, file_index)
         raise ValueError(f"Unsupported file type: {suffix}")
 
-    def load_image_folder(self, folder_path: Path) -> DatasetSession:
+    def load_image_folder(
+        self,
+        folder_path: Path,
+        workspace_path: Optional[Path] = None,
+        file_list: Optional[List[Path]] = None,
+    ) -> DatasetSession:
         """Load all directly contained images as one ordered sequence."""
         folder_path = folder_path.expanduser().resolve()
         image_paths = discover_image_sequence(folder_path)
@@ -217,7 +284,20 @@ class DatasetLoader:
             raise FileNotFoundError(
                 f"No supported image files found in folder: {folder_path}"
             )
-        return self._load_image_sequence(folder_path, image_paths)
+        workspace = (
+            workspace_path.expanduser().resolve()
+            if workspace_path is not None
+            else folder_path.parent
+        )
+        entries = list(file_list) if file_list is not None else [folder_path]
+        file_index = entries.index(folder_path) if folder_path in entries else 0
+        return self._load_image_sequence(
+            folder_path,
+            image_paths,
+            workspace,
+            entries,
+            file_index,
+        )
 
     def _base_session(
         self,
@@ -256,6 +336,9 @@ class DatasetLoader:
         self,
         folder_path: Path,
         image_paths: List[Path],
+        workspace: Path,
+        file_list: List[Path],
+        file_index: int,
     ) -> DatasetSession:
         """Build one lazy image stream from every image in a folder."""
         self.progress_callback(
@@ -275,9 +358,9 @@ class DatasetLoader:
         )
         session = self._base_session(
             folder_path,
-            folder_path.parent,
-            [folder_path],
-            0,
+            workspace,
+            file_list,
+            file_index,
             "image_sequence",
         )
         session.streams[stream.name] = stream

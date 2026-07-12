@@ -8,6 +8,7 @@ main_ui_file: "main_window.ui"  # Qt Designer UI 파일.
 style_file: "configs/style_light.qss"  # 기본 스타일시트.
 default_hdf5_mapping_file: "configs/hdf5_mapping.yaml"  # HDF5 stream 매핑.
 default_view_config_file: "configs/view_config.yaml"  # 데이터 뷰 구성.
+default_media_label_export_file: "configs/media_label_export.yaml"  # 미디어 라벨 export 구성.
 default_label_dataset: "labels"  # HDF5 라벨 dataset 이름.
 export_dir_name: "label"  # 라벨 export 폴더 이름.
 default_app_theme: "Light"  # 기본 앱 테마 이름.

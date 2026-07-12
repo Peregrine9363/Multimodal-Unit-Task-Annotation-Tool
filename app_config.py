@@ -57,6 +57,13 @@ DEFAULT_VIEW_CONFIG_FILE = path_from_config(
     APP_SETTINGS.get("default_view_config_file", "configs/view_config.yaml"),
     CONFIG_DIR / "view_config.yaml",
 )
+DEFAULT_MEDIA_LABEL_EXPORT_FILE = path_from_config(
+    APP_SETTINGS.get(
+        "default_media_label_export_file",
+        "configs/media_label_export.yaml",
+    ),
+    CONFIG_DIR / "media_label_export.yaml",
+)
 DEFAULT_LABEL_DATASET = str(APP_SETTINGS.get("default_label_dataset", "labels"))
 EXPORT_DIR_NAME = str(APP_SETTINGS.get("export_dir_name", "label"))
 DEFAULT_APP_THEME = APP_SETTINGS.get("default_app_theme", "Light")

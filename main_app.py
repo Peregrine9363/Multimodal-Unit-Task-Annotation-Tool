@@ -10,7 +10,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import yaml
 from PyQt5 import uic
@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
@@ -43,6 +44,7 @@ from app_config import (
     DEFAULT_DATA_VIEW_BACKGROUND,
     DEFAULT_HDF5_MAPPING_FILE,
     DEFAULT_LABEL_DATASET,
+    DEFAULT_MEDIA_LABEL_EXPORT_FILE,
     DEFAULT_VIEW_CONFIG_FILE,
     DEFAULT_ZOOM_SECONDS,
     DEFAULT_WINDOW_HEIGHT,
@@ -60,12 +62,19 @@ from app_config import (
     TOGGLE_LABELING_KEYS,
     load_yaml,
 )
-from data_loader import DatasetLoader, discover_supported_files
+from data_loader import DatasetLoader, resolve_workspace_selection
 from data_models import DatasetSession
 from labeling_io import LabelImportResult, LabelStorage
+from media_label_exporter import (
+    MediaLabelExportConfig,
+    MediaSegmentExporter,
+    load_media_label_export_config,
+)
 from multrecog_core import LabelingLogic
 from multrecog_ui import EditSegmentDialog, SegmentedSlider
+from progress_dialog import OperationProgressDialog
 from settings_dialogs import DataViewSettingsDialog, YamlConfigEditorDialog
+from source_dialog import DataSourceDialog
 from widgets import DataDockWidget
 
 
@@ -160,12 +169,16 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.namespace_config = load_yaml(DEFAULT_VIEW_CONFIG_FILE)
         self.view_config_path = DEFAULT_VIEW_CONFIG_FILE
         self.hdf5_mapping_path = DEFAULT_HDF5_MAPPING_FILE
+        self.media_label_export_path = DEFAULT_MEDIA_LABEL_EXPORT_FILE
+        self.last_import_directory = Path.cwd()
+        self.last_entered_class_ids = [-1]
 
         self.label_storage = LabelStorage(DEFAULT_LABEL_DATASET, self._log)
         self.labeling_logic = LabelingLogic(CLASS_COLORS)
         self.workspace_splitter: Optional[QSplitter] = None
         self.data_docks: List[DataDockWidget] = []
         self.data_view_splitter: Optional[QSplitter] = None
+        self._progress_dialog: Optional[OperationProgressDialog] = None
         self.floating_view_windows: Dict[int, QDialog] = {}
         self.dock_locations: Dict[int, tuple[QSplitter, int]] = {}
         # 사용자가 선택한 stream은 실행 중에만 유지합니다.
@@ -199,7 +212,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self._setup_timeline_controls()
         self._setup_splitter_geometry()
         self._setup_menu_bar()
-        self._setup_import_menu()
+        self.pushButton_import.setMenu(None)
         self._build_data_views(self.spinBox_viewCount.value())
 
     def _setup_menu_bar(self) -> None:
@@ -210,15 +223,9 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
 
         self._add_menu_action(
             file_menu,
-            "Import File...",
-            self.import_data,
+            "Import...",
+            self.import_data_source,
             QKeySequence.Open,
-        )
-        self._add_menu_action(
-            file_menu,
-            "Import Image Folder...",
-            self.import_image_folder,
-            "Ctrl+Shift+O",
         )
         self._add_menu_action(file_menu, "Import Label...", self.import_label_data)
         self.action_export_labels = self._add_menu_action(
@@ -278,6 +285,11 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             "Edit HDF5 Mapping YAML...",
             self.edit_hdf5_mapping_yaml,
         )
+        self._add_menu_action(
+            settings_menu,
+            "Edit Media Label Export YAML...",
+            self.edit_media_label_export_yaml,
+        )
 
     def _add_menu_action(
         self,
@@ -293,16 +305,6 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             action.setShortcut(shortcut)
         menu.addAction(action)
         return action
-
-    def _setup_import_menu(self) -> None:
-        """Provide separate file and image-folder import commands."""
-        self.import_menu = QMenu(self.pushButton_import)
-        self.import_menu.addAction("Import File...", self.import_data)
-        self.import_menu.addAction(
-            "Import Image Folder...",
-            self.import_image_folder,
-        )
-        self.pushButton_import.setMenu(self.import_menu)
 
     def _remove_unused_view_setting_rows(self) -> None:
         """UI에서 제거된 데이터 뷰 설정 항목의 폼 행까지 정리합니다."""
@@ -751,6 +753,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             dialog.deleteLater()
 
     def _connect_signals(self) -> None:
+        self.pushButton_import.clicked.connect(self.import_data_source)
         self.pushButton_importLabel.clicked.connect(self.import_label_data)
         self.pushButton_export.clicked.connect(self.export_data)
         self.pushButton_previous.clicked.connect(self.go_to_previous_file)
@@ -777,6 +780,21 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
     # File import/export
     # ==========================================================================
 
+    def import_data_source(self) -> None:
+        """Select one supported file or one image folder in a single dialog."""
+        dialog = DataSourceDialog(
+            self.last_import_directory,
+            SUPPORTED_EXTENSIONS,
+            self,
+        )
+        if not dialog.exec_() or dialog.selected_path is None:
+            return
+        selected_path = dialog.selected_path
+        self.last_import_directory = (
+            selected_path if selected_path.is_dir() else selected_path.parent
+        )
+        self._load_import_selection(selected_path)
+
     def import_data(self) -> None:
         patterns = " ".join(f"*{suffix}" for suffix in SUPPORTED_EXTENSIONS)
         file_path, _ = QFileDialog.getOpenFileName(
@@ -790,7 +808,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             "MCAP Files (*.mcap)",
         )
         if file_path:
-            self._load_file(Path(file_path))
+            self._load_import_selection(Path(file_path))
 
     def import_image_folder(self) -> None:
         folder_path = QFileDialog.getExistingDirectory(
@@ -801,29 +819,67 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         )
         if not folder_path:
             return
-        self._load_image_folder(Path(folder_path))
+        self._load_import_selection(Path(folder_path))
 
-    def _load_image_folder(self, folder_path: Path) -> None:
+    def _load_import_selection(self, selected_path: Path) -> None:
+        """Resolve and load a file/folder using shared workspace rules."""
         try:
-            self._log(f"Loading image folder '{folder_path.name}'...")
-            session = self._make_dataset_loader().load_image_folder(folder_path)
-            self._accept_loaded_session(session)
-        except Exception as exc:
-            self._handle_load_error(exc)
-
-    def _load_file(self, file_path: Path, file_list: Optional[List[Path]] = None) -> None:
-        try:
-            self._log(f"Loading '{file_path.name}'...")
-            file_list = file_list or discover_supported_files(file_path)
-            loader = self._make_dataset_loader()
-            session = (
-                loader.load_exact(file_path, file_list)
-                if file_list
-                else loader.load(file_path)
+            selection = resolve_workspace_selection(selected_path)
+            self._load_workspace_entry(
+                selection.selected_entry,
+                selection.workspace_path,
+                selection.entries,
             )
-            self._accept_loaded_session(session)
         except Exception as exc:
             self._handle_load_error(exc)
+
+    def _load_workspace_entry(
+        self,
+        entry_path: Path,
+        workspace_path: Path,
+        entries: List[Path],
+    ) -> None:
+        """Load one file or image-sequence entry from a workspace."""
+        self._show_operation_progress(
+            "Import Data",
+            f"Preparing to import {entry_path.name}...",
+        )
+        try:
+            loader = self._make_dataset_loader()
+            if entry_path.is_dir():
+                self._log(f"Loading image folder '{entry_path.name}'...")
+                session = loader.load_image_folder(
+                    entry_path,
+                    workspace_path,
+                    entries,
+                )
+            else:
+                self._log(f"Loading '{entry_path.name}'...")
+                session = loader.load_exact(
+                    entry_path,
+                    entries,
+                    workspace_path,
+                )
+            self._accept_loaded_session(session)
+            self._close_operation_progress("Import completed.")
+        except Exception as exc:
+            self._handle_load_error(exc)
+
+    def _load_file(
+        self,
+        file_path: Path,
+        file_list: Optional[List[Path]] = None,
+    ) -> None:
+        """Load a file while preserving compatibility with existing callers."""
+        if file_list is None:
+            self._load_import_selection(file_path)
+            return
+        workspace_path = (
+            self.session.workspace_path
+            if self.session is not None
+            else file_path.parent
+        )
+        self._load_workspace_entry(file_path, workspace_path, file_list)
 
     def _make_dataset_loader(self) -> DatasetLoader:
         """Create a loader with the current full-data preview settings."""
@@ -843,7 +899,11 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self._sync_timeline_bounds_from_session()
         self.current_index = 0
         self.labeling_logic.reset()
+        self.last_entered_class_ids = [-1]
+        self._update_operation_progress(88, "Preparing imported data...")
         self._load_existing_labels()
+        self._sync_last_class_ids_from_segments()
+        self._update_operation_progress(96, "Configuring data views...")
         self._configure_views_for_session()
         self._reset_timeline()
         self._update_class_list()
@@ -852,9 +912,11 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self._log(
             f"Loaded {len(session.streams)} streams. Frames: {self.total_frames}"
         )
+        self._update_operation_progress(99, "Finalizing imported data...")
 
     def _handle_load_error(self, exc: Exception) -> None:
         """Reset imported data state after a failed file or folder import."""
+        self._close_operation_progress(completed=False)
         QMessageBox.critical(self, "Import Error", f"Failed to load data:\n{exc}")
         self._log(f"Failed to load data: {exc}", "ERROR")
         self.session = None
@@ -867,7 +929,10 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
     def _load_existing_labels(self) -> None:
         if self.session is None or self.session.source_kind != "hdf5":
             return
-        self.labeling_logic.segments = self.label_storage.load_from_hdf5(self.session.file_path)
+        self.labeling_logic.segments = self.label_storage.load_from_hdf5(
+            self.session.file_path,
+            self._on_embedded_label_progress,
+        )
         self._log(f"Loaded {len(self.labeling_logic.segments)} existing labels.")
 
     def import_label_data(self) -> None:
@@ -881,10 +946,19 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         )
         if not file_path:
             return
+        self._show_operation_progress(
+            "Import Labels",
+            f"Preparing to import {Path(file_path).name}...",
+        )
         try:
-            result = self.label_storage.import_labels(Path(file_path))
+            result = self.label_storage.import_labels(
+                Path(file_path),
+                self._update_operation_progress,
+            )
             self._apply_label_import_result(Path(file_path), result)
+            self._close_operation_progress("Label import completed.")
         except Exception as exc:
+            self._close_operation_progress(completed=False)
             QMessageBox.critical(self, "Label Import Error", f"Failed to import labels:\n{exc}")
             self._log(f"Failed to import labels: {exc}", "ERROR")
 
@@ -893,6 +967,7 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self.label_file_path = file_path
         self.labeling_logic.reset()
         self.labeling_logic.segments = result.segments
+        self._sync_last_class_ids_from_segments()
         if self.session is None:
             self.total_frames = max(result.total_frames, self._max_label_frame() + 1, 1)
             self._sync_timeline_bounds_from_label(result)
@@ -923,25 +998,173 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         source_path = self.session.file_path if self.session is not None else self.label_file_path
         if source_path is None:
             return
-        base_name = source_path.stem
-        export_dir = source_path.parent / EXPORT_DIR_NAME
-        output_path = export_dir / f"{base_name}_labels.csv"
+        self._show_operation_progress(
+            "Export Labels",
+            f"Preparing to export labels for {source_path.name}...",
+        )
         try:
-            self.label_storage.export(
-                source_path,
-                output_path,
-                self.labeling_logic.segments,
-                self.total_frames,
-                (self.timeline_start_sec, self.timeline_end_sec),
+            self._update_operation_progress(3, "Loading export configuration...")
+            config = load_media_label_export_config(
+                self.media_label_export_path
             )
-            self._log(f"Exported labels: {output_path}")
+            export_dir = source_path.parent / (
+                config.output_dir_name or EXPORT_DIR_NAME
+            )
+            if self._uses_embedded_hdf5_export(source_path, config):
+                self._export_labeled_hdf5(source_path, export_dir, config)
+            else:
+                self._export_label_csv(source_path, export_dir, config)
+                self._export_split_media_if_enabled(config, export_dir)
+            self._update_operation_progress(99, "Finalizing export...")
+            self._close_operation_progress("Export completed.")
         except Exception as exc:
+            self._close_operation_progress(completed=False)
             self._log(f"Export failed: {exc}", "ERROR")
             QMessageBox.critical(self, "Export Error", str(exc))
 
+    @staticmethod
+    def _uses_embedded_hdf5_export(
+        source_path: Path,
+        config: MediaLabelExportConfig,
+    ) -> bool:
+        is_hdf5 = source_path.suffix.lower() in (".h5", ".hdf5")
+        return is_hdf5 and config.hdf5_mode == "embedded"
+
+    def _export_labeled_hdf5(
+        self,
+        source_path: Path,
+        export_dir: Path,
+        config: MediaLabelExportConfig,
+    ) -> None:
+        output_name = (
+            f"{source_path.stem}{config.hdf5_output_name_suffix}"
+            f"{source_path.suffix}"
+        )
+        output_path = export_dir / output_name
+        self.label_storage.export_labeled_hdf5(
+            source_path,
+            output_path,
+            self.labeling_logic.segments,
+            self.total_frames,
+            (self.timeline_start_sec, self.timeline_end_sec),
+            self._on_hdf5_export_progress,
+        )
+        self._log(f"Exported labeled HDF5: {output_path}")
+        if config.hdf5_export_csv_sidecar:
+            self._export_label_csv(
+                source_path,
+                export_dir,
+                config,
+                self._on_hdf5_csv_export_progress,
+            )
+        else:
+            self._update_operation_progress(95, "Labeled HDF5 export completed.")
+
+    def _export_label_csv(
+        self,
+        source_path: Path,
+        export_dir: Path,
+        config: MediaLabelExportConfig,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
+    ) -> Path:
+        output_path = export_dir / (
+            f"{source_path.stem}{config.labels_file_suffix}"
+        )
+        self.label_storage.export(
+            source_path,
+            output_path,
+            self.labeling_logic.segments,
+            self.total_frames,
+            (self.timeline_start_sec, self.timeline_end_sec),
+            progress_callback or self._on_label_export_progress,
+        )
+        self._log(f"Exported labels: {output_path}")
+        return output_path
+
+    def _export_split_media_if_enabled(self, config, export_dir: Path) -> None:
+        """Create class-organized media only when split mode is enabled."""
+        if not config.split_enabled:
+            self._update_operation_progress(95, "Label CSV export completed.")
+            return
+        if self.session is None:
+            self._log(
+                "Split export skipped because no source media is loaded.",
+                "WARN",
+            )
+            self._update_operation_progress(95, "Split media export skipped.")
+            return
+        if self.session.source_kind not in ("mp4", "image", "image_sequence"):
+            self._log(
+                f"Split export is not supported for {self.session.source_kind}.",
+                "WARN",
+            )
+            self._update_operation_progress(95, "Split media export skipped.")
+            return
+        result = MediaSegmentExporter(
+            config,
+            self._on_split_export_progress,
+        ).export(
+            self.session,
+            self.labeling_logic.segments,
+            export_dir,
+        )
+        self._log(
+            f"Split export completed: files={result.exported_files}, "
+            f"metadata={result.metadata_path}"
+        )
+
     def _on_load_progress(self, percent: int, text: str) -> None:
         self.statusbar.showMessage(f"{percent:3d}% {text}")
+        overall_percent = int(max(0, min(percent, 100)) * 0.85)
+        self._update_operation_progress(overall_percent, text)
+
+    def _on_embedded_label_progress(self, percent: int, text: str) -> None:
+        overall_percent = 88 + int(max(0, min(percent, 100)) * 0.07)
+        self._update_operation_progress(overall_percent, text)
+
+    def _on_label_export_progress(self, percent: int, text: str) -> None:
+        overall_percent = 5 + int(max(0, min(percent, 100)) * 0.40)
+        self._update_operation_progress(overall_percent, text)
+
+    def _on_hdf5_export_progress(self, percent: int, text: str) -> None:
+        overall_percent = 5 + int(max(0, min(percent, 100)) * 0.80)
+        self._update_operation_progress(overall_percent, text)
+
+    def _on_hdf5_csv_export_progress(self, percent: int, text: str) -> None:
+        overall_percent = 85 + int(max(0, min(percent, 100)) * 0.10)
+        self._update_operation_progress(overall_percent, text)
+
+    def _on_split_export_progress(self, percent: int, text: str) -> None:
+        overall_percent = 45 + int(max(0, min(percent, 100)) * 0.50)
+        self._update_operation_progress(overall_percent, text)
+
+    def _show_operation_progress(self, title: str, message: str) -> None:
+        self._close_operation_progress(completed=False)
+        self._progress_dialog = OperationProgressDialog(title, message, self)
+        self._progress_dialog.show()
         QApplication.processEvents()
+
+    def _update_operation_progress(self, percent: int, text: str) -> None:
+        if self._progress_dialog is not None:
+            self._progress_dialog.update_progress(percent, text)
+        QApplication.processEvents()
+
+    def _close_operation_progress(
+        self,
+        message: str = "Completed.",
+        completed: bool = True,
+    ) -> None:
+        if self._progress_dialog is None:
+            return
+        progress_dialog = self._progress_dialog
+        self._progress_dialog = None
+        if completed:
+            progress_dialog.finish(message)
+        else:
+            progress_dialog.allow_close()
+        QApplication.processEvents()
+        progress_dialog.close()
+        progress_dialog.deleteLater()
 
     # ==========================================================================
     # Dynamic data views
@@ -1120,6 +1343,20 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             self._log(
                 f"HDF5 mapping selected: {self.hdf5_mapping_path}. "
                 "It will be used by the next import."
+            )
+
+    def edit_media_label_export_yaml(self) -> None:
+        """Edit or browse the active media label export configuration."""
+        dialog = YamlConfigEditorDialog(
+            "Media Label Export YAML",
+            self.media_label_export_path,
+            self,
+        )
+        if dialog.exec_() and dialog.saved_path is not None:
+            self.media_label_export_path = dialog.saved_path
+            self._log(
+                f"Media label export config selected: "
+                f"{self.media_label_export_path}"
             )
 
     def _view_config_with_current_state(self, source: Dict) -> Dict:
@@ -1331,10 +1568,13 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
         self._finish_labeling_segment()
 
     def _finish_labeling_segment(self) -> None:
+        default_text = self._next_class_default_text()
         text, ok = QInputDialog.getText(
             self,
             "Enter Class ID(s)",
             f"Class ID(s), max {MAX_CLASS_IDS_PER_SEGMENT} (e.g., 1 or 1, 2):",
+            QLineEdit.Normal,
+            default_text,
         )
         if ok and text.strip():
             try:
@@ -1344,6 +1584,8 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
                 if len(class_ids) > MAX_CLASS_IDS_PER_SEGMENT:
                     QMessageBox.warning(self, "Input Error", "Too many class IDs.")
                     return
+                class_ids = sorted(set(class_ids))
+                self.last_entered_class_ids = list(class_ids)
                 self.labeling_logic.stop_labeling(self.current_index, class_ids)
                 self._log(f"Segment added: Class(es): {class_ids}")
                 self._update_class_list()
@@ -1370,8 +1612,27 @@ class LabelingApp(QMainWindow, Ui_MainWindow):
             new_data = dialog.get_data()
             if new_data:
                 self.labeling_logic.edit_segment(index, new_data)
+                self.last_entered_class_ids = list(new_data[2])
                 self._update_class_list()
                 self._update_slider_segments()
+
+    def _next_class_default_text(self) -> str:
+        """Suggest one greater than each class in the latest registration."""
+        return ", ".join(
+            str(class_id + 1)
+            for class_id in self.last_entered_class_ids
+        )
+
+    def _sync_last_class_ids_from_segments(self) -> None:
+        """Initialize the next suggestion from an imported label timeline."""
+        if not self.labeling_logic.segments:
+            self.last_entered_class_ids = [-1]
+            return
+        latest_segment = max(
+            self.labeling_logic.segments,
+            key=lambda segment: (segment[1], segment[0]),
+        )
+        self.last_entered_class_ids = list(latest_segment[2])
 
     def _update_class_list(self) -> None:
         self.listWidget_classView.clear()
